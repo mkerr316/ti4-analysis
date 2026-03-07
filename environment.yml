@@ -31,4 +31,5 @@ dependencies:
     - torch
     - torchrl>=0.5.0
     - torch-geometric>=2.6
+    - chompjs>=1.2.0
     - -e .
