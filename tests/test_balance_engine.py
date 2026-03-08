@@ -283,3 +283,38 @@ class TestImproveBalance:
         # Should handle gracefully
         final_gap, history = improve_balance(ti4_map, evaluator, iterations=10)
         assert len(history) > 0
+
+
+class TestTI4MapCopy:
+    """Regression tests for TI4Map.copy() deep-copy semantics.
+
+    pareto_optimize() correctness depends on copy() producing fresh MapSpace
+    objects. If copy() is ever changed to return the same objects, child map
+    mutations would bleed into parent maps, silently corrupting the optimizer.
+    """
+
+    def _make_map(self):
+        planet = Planet("Test", resources=2, influence=2)
+        system = System(id=1, planets=[planet])
+        space = MapSpace(HexCoord(0, 0, 0), MapSpaceType.SYSTEM, system)
+        return TI4Map([space])
+
+    def test_copy_produces_fresh_space_objects(self):
+        """copy() must return new MapSpace objects, not references to originals."""
+        ti4_map = self._make_map()
+        copied = ti4_map.copy()
+        assert copied.spaces[0] is not ti4_map.spaces[0]
+
+    def test_copy_system_mutation_does_not_affect_original(self):
+        """Reassigning .system on a copied space must not touch the source map."""
+        ti4_map = self._make_map()
+        copied = ti4_map.copy()
+        original_system = ti4_map.spaces[0].system
+        copied.spaces[0].system = None
+        assert ti4_map.spaces[0].system is original_system
+
+    def test_copy_preserves_system_reference(self):
+        """Copied spaces initially point to the same System objects (shared, not cloned)."""
+        ti4_map = self._make_map()
+        copied = ti4_map.copy()
+        assert copied.spaces[0].system is ti4_map.spaces[0].system
