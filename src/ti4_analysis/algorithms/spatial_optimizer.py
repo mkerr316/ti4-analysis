@@ -103,24 +103,24 @@ def evaluate_map_multiobjective(
         ti4_map: Map to evaluate (must reflect current tile placement for spatial metrics)
         evaluator: Balance evaluator
         weights: Objective weights (uses defaults if None)
-        fast_state: Optional pre-initialized FastMapState. When provided, balance_gap
-            is computed via vectorized matmul instead of BFS. ti4_map must be in sync
-            with fast_state (same tile placement) for spatial metrics to be correct.
+        fast_state: Optional pre-initialized FastMapState. When provided, all three
+            metrics (balance_gap, Moran's I, Jain's Index) are computed via vectorized
+            fast paths — ti4_map is not read. When None, falls back to comprehensive_spatial_analysis().
 
     Returns:
         MultiObjectiveScore with all metrics
     """
-    # Basic balance — use fast path when available
     if fast_state is not None:
+        # All three metrics from vectorized fast paths — no TI4Map traversal needed.
         balance_gap = fast_state.balance_gap()
+        morans_i = fast_state.morans_i()
+        jains_index = fast_state.jains_index()
     else:
         home_values = get_home_values(ti4_map, evaluator)
         balance_gap = get_balance_gap(home_values)
-
-    # Spatial metrics always read from ti4_map
-    spatial_analysis = comprehensive_spatial_analysis(ti4_map, evaluator)
-    morans_i = spatial_analysis['resource_clustering_morans_i']
-    jains_index = spatial_analysis['jains_fairness_index']
+        spatial_analysis = comprehensive_spatial_analysis(ti4_map, evaluator)
+        morans_i = spatial_analysis['resource_clustering_morans_i']
+        jains_index = spatial_analysis['jains_fairness_index']
 
     return MultiObjectiveScore(balance_gap, morans_i, jains_index, weights)
 
@@ -254,20 +254,31 @@ def pareto_optimize(
         random.seed(random_seed)
         np.random.seed(random_seed)
 
-    # Initialize population with variations of the starting map
-    population = []
+    # Build topology once; all individuals share it.
+    topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+
+    # Initialize population with variations of the starting map.
+    # Each individual is (TI4Map, FastMapState, score) — evaluation uses fast_state.
+    population: List[Tuple[TI4Map, FastMapState, MultiObjectiveScore]] = []
+
+    base_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+    swappable_indices_list = list(range(len(topology.swappable_indices)))
 
     for i in range(population_size):
         map_copy = ti4_map.copy()
+        fast_copy = base_state.clone()
 
-        # Randomize by swapping tiles a few times
-        swappable = [s for s in map_copy.get_system_spaces() if can_swap_system(s)]
+        # Randomize by applying 10 random swaps to both in sync.
+        swappable_spaces = [map_copy.spaces[idx] for idx in topology.swappable_indices]
         for _ in range(10):
-            s1, s2 = random.sample(swappable, 2)
-            s1.system, s2.system = s2.system, s1.system
+            s1, s2 = random.sample(swappable_indices_list, 2)
+            fast_copy.swap(s1, s2)
+            swappable_spaces[s1].system, swappable_spaces[s2].system = (
+                swappable_spaces[s2].system, swappable_spaces[s1].system
+            )
 
-        score = evaluate_map_multiobjective(map_copy, evaluator)
-        population.append((map_copy, score))
+        score = evaluate_map_multiobjective(map_copy, evaluator, fast_state=fast_copy)
+        population.append((map_copy, fast_copy, score))
 
         if verbose:
             print(f"Initialized map {i+1}/{population_size}: {score}")
@@ -278,45 +289,55 @@ def pareto_optimize(
             print(f"\nGeneration {generation}/{iterations}")
 
         # Create offspring by mutation
-        offspring = []
+        offspring: List[Tuple[TI4Map, FastMapState, MultiObjectiveScore]] = []
 
-        for map_obj, score in population:
-            child = map_obj.copy()
+        for map_obj, fast_obj, score in population:
+            child_map = map_obj.copy()
+            child_state = fast_obj.clone()
+            child_swappable = [child_map.spaces[idx] for idx in topology.swappable_indices]
 
-            # Mutate: swap a few random tiles
-            swappable = [s for s in child.get_system_spaces() if can_swap_system(s)]
             num_swaps = random.randint(1, 3)
-
             for _ in range(num_swaps):
-                s1, s2 = random.sample(swappable, 2)
-                s1.system, s2.system = s2.system, s1.system
+                s1, s2 = random.sample(swappable_indices_list, 2)
+                child_state.swap(s1, s2)
+                child_swappable[s1].system, child_swappable[s2].system = (
+                    child_swappable[s2].system, child_swappable[s1].system
+                )
 
-            child_score = evaluate_map_multiobjective(child, evaluator)
-            offspring.append((child, child_score))
+            child_score = evaluate_map_multiobjective(child_map, evaluator, fast_state=child_state)
+            offspring.append((child_map, child_state, child_score))
 
-        # Combine population and offspring
+        # Combine and extract Pareto front
         combined = population + offspring
-
-        # Non-dominated sorting (Pareto ranking)
-        pareto_front = _extract_pareto_front(combined)
-
-        # Select best individuals for next generation
+        pareto_front = _extract_pareto_front_triples(combined)
         population = pareto_front[:population_size]
 
         if verbose and generation % 10 == 0:
             print(f"Pareto front size: {len(pareto_front)}")
             if len(population) > 0:
-                print(f"Best composite score: {min(s.composite_score() for _, s in population):.2f}")
+                print(f"Best composite score: {min(s.composite_score() for _, _, s in population):.2f}")
 
-    # Return final Pareto front
-    final_front = _extract_pareto_front(population)
+    # Return final Pareto front — strip FastMapState from tuples (API unchanged)
+    final_front_triples = _extract_pareto_front_triples(population)
 
     if verbose:
-        print(f"\nFinal Pareto front: {len(final_front)} solutions")
-        for i, (_, score) in enumerate(final_front[:5]):
+        print(f"\nFinal Pareto front: {len(final_front_triples)} solutions")
+        for i, (_, _, score) in enumerate(final_front_triples[:5]):
             print(f"  Solution {i+1}: {score}")
 
-    return final_front
+    return [(m, s) for m, _, s in final_front_triples]
+
+
+def _extract_pareto_front_triples(
+    population: List[Tuple[TI4Map, 'FastMapState', MultiObjectiveScore]]
+) -> List[Tuple[TI4Map, 'FastMapState', MultiObjectiveScore]]:
+    """Extract Pareto-optimal front from (map, fast_state, score) triples."""
+    pareto_front = []
+    for item in population:
+        score = item[2]
+        if not any(other[2].dominates(score) for other in population):
+            pareto_front.append(item)
+    return pareto_front
 
 
 def _extract_pareto_front(
@@ -412,8 +433,10 @@ def compare_optimizers(
     print("-" * 80)
 
     print(f"{'Balance Gap':<30s} | {basic_balance['balance_gap']:>12.3f} | {spatial_balance['balance_gap']:>12.3f} | {spatial_balance['balance_gap']-basic_balance['balance_gap']:>+12.3f}")
-    print(f"{'Moran\'s I (Clustering)':<30s} | {basic_spatial['resource_clustering_morans_i']:>12.3f} | {spatial_spatial['resource_clustering_morans_i']:>12.3f} | {spatial_spatial['resource_clustering_morans_i']-basic_spatial['resource_clustering_morans_i']:>+12.3f}")
-    print(f"{'Jain\'s Index (Fairness)':<30s} | {basic_spatial['jains_fairness_index']:>12.3f} | {spatial_spatial['jains_fairness_index']:>12.3f} | {spatial_spatial['jains_fairness_index']-basic_spatial['jains_fairness_index']:>+12.3f}")
+    morans_label = "Moran's I (Clustering)"
+    jains_label = "Jain's Index (Fairness)"
+    print(f"{morans_label:<30s} | {basic_spatial['resource_clustering_morans_i']:>12.3f} | {spatial_spatial['resource_clustering_morans_i']:>12.3f} | {spatial_spatial['resource_clustering_morans_i']-basic_spatial['resource_clustering_morans_i']:>+12.3f}")
+    print(f"{jains_label:<30s} | {basic_spatial['jains_fairness_index']:>12.3f} | {spatial_spatial['jains_fairness_index']:>12.3f} | {spatial_spatial['jains_fairness_index']-basic_spatial['jains_fairness_index']:>+12.3f}")
 
     print("=" * 80)
 

@@ -38,7 +38,8 @@ class FastMapState:
     so only system_value needs to be updated on each swap.
     """
 
-    __slots__ = ("topology", "system_value", "_home_values", "_dirty")
+    __slots__ = ("topology", "system_value", "_home_values", "_dirty",
+                 "_spatial_values", "_spatial_dirty")
 
     def __init__(self, topology: MapTopology, system_value: np.ndarray) -> None:
         self.topology = topology
@@ -47,6 +48,8 @@ class FastMapState:
             topology.static_home_values + topology.dynamic_weight_matrix @ system_value
         )
         self._dirty: bool = False
+        self._spatial_values: np.ndarray = np.empty(0, dtype=np.float32)
+        self._spatial_dirty: bool = True
 
     @classmethod
     def from_ti4_map(
@@ -80,6 +83,7 @@ class FastMapState:
             self.system_value[s_i],
         )
         self._dirty = True
+        self._spatial_dirty = True
 
     def home_values(self) -> np.ndarray:
         """
@@ -104,6 +108,62 @@ class FastMapState:
         hv = self.home_values()
         return float(hv.max() - hv.min())
 
+    def spatial_values(self) -> np.ndarray:
+        """
+        Full N_sys resource values vector for Moran's I computation.
+
+        Lazily recomputed when dirty; cached otherwise.
+        Formula: spatial_static_values + spatial_projection @ system_value
+        Shape: (N_sys,) float32.
+        """
+        if self._spatial_dirty:
+            topo = self.topology
+            proj = np.asarray(
+                topo.spatial_projection @ self.system_value, dtype=np.float32
+            ).ravel()
+            self._spatial_values = topo.spatial_static_values + proj
+            self._spatial_dirty = False
+        return self._spatial_values
+
+    def morans_i(self) -> float:
+        """
+        Global Moran's I spatial autocorrelation via sparse matmul.
+
+        O(nnz) ≈ O(6·N_sys) — uses pre-computed row-standardized adjacency W.
+        I > 0: clustering; I ≈ 0: random; I < 0: dispersion.
+        """
+        z = self.spatial_values()
+        n = len(z)
+        if n < 3:
+            return 0.0
+        z_dev = z - z.mean()
+        denom = float(z_dev @ z_dev)
+        if denom == 0.0:
+            return 0.0
+        W = self.topology.spatial_W
+        W_sum = float(W.sum())
+        if W_sum == 0.0:
+            return 0.0
+        numer = float(z_dev @ (W @ z_dev))
+        return (n / W_sum) * (numer / denom)
+
+    def jains_index(self) -> float:
+        """
+        Jain's Fairness Index on home_values(). O(H), already cached.
+
+        J = (Σhv)² / (H × Σhv²). Range [1/H, 1]; 1 = perfect fairness.
+        Uses the BFS-routing-weighted home values, consistent with balance_gap.
+        """
+        hv = self.home_values()
+        n = len(hv)
+        if n == 0:
+            return 1.0
+        sum_x = float(hv.sum())
+        sum_x2 = float((hv ** 2).sum())
+        if sum_x2 == 0.0:
+            return 1.0
+        return (sum_x ** 2) / (n * sum_x2)
+
     def clone(self) -> 'FastMapState':
         """
         Return an independent copy sharing the same immutable topology.
@@ -116,4 +176,9 @@ class FastMapState:
         new.system_value = self.system_value.copy()
         new._home_values = self._home_values.copy()
         new._dirty = self._dirty
+        new._spatial_values = (
+            self._spatial_values.copy() if not self._spatial_dirty
+            else np.empty(0, dtype=np.float32)
+        )
+        new._spatial_dirty = self._spatial_dirty
         return new
