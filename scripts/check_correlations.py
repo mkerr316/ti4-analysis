@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # Load merged data from notebook
-df = pd.read_csv('d:/dev/ti4_map_generator/ti4-analysis/data/combined_faction_clusters.csv')
+df = pd.read_csv(Path(__file__).parent.parent / "data" / "combined_faction_clusters.csv")
 
 # Check correlations among community features
 community_cols = ['win_ratio', 'win_deviation', 'residual_pct_pts']

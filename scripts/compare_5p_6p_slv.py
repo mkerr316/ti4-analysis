@@ -4,7 +4,6 @@ Side-by-side comparison of SLV for 5-player vs 6-player maps.
 """
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from ti4_analysis.algorithms.map_generator import generate_random_map
 from ti4_analysis.algorithms.balance_engine import create_joebrew_evaluator

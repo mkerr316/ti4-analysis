@@ -7,6 +7,7 @@ Implements Pareto optimization that balances BOTH basic balance metrics
 This addresses the "spatial blindness" problem identified in the experimental research.
 """
 
+import math
 import random
 from typing import Tuple, List, Optional, Dict
 import numpy as np
@@ -33,18 +34,21 @@ class MultiObjectiveScore:
         balance_gap: float,
         morans_i: float,
         jains_index: float,
+        lisa_penalty: float = 0.0,
         weights: Optional[Dict[str, float]] = None
     ):
         self.balance_gap = balance_gap
         self.morans_i = morans_i
         self.jains_index = jains_index
+        self.lisa_penalty = lisa_penalty
 
         # Default weights
         if weights is None:
             weights = {
                 'balance_gap': 1.0,
                 'morans_i': 0.5,
-                'jains_index': -0.5  # Negative because we want to maximize Jain's
+                'jains_index': -0.5,   # Negative because we want to maximize Jain's
+                'lisa_penalty': 0.3,   # Penalize H-H / L-L spatial clusters
             }
 
         self.weights = weights
@@ -58,7 +62,8 @@ class MultiObjectiveScore:
         score = (
             self.weights['balance_gap'] * self.balance_gap +
             self.weights['morans_i'] * abs(self.morans_i) +
-            self.weights['jains_index'] * (1.0 - self.jains_index)  # Convert max to min
+            self.weights['jains_index'] * (1.0 - self.jains_index) +  # Convert max to min
+            self.weights.get('lisa_penalty', 0.3) * self.lisa_penalty
         )
         return score
 
@@ -86,6 +91,7 @@ class MultiObjectiveScore:
             f"Gap={self.balance_gap:.2f}, "
             f"Moran's I={self.morans_i:+.3f}, "
             f"Jain's={self.jains_index:.3f}, "
+            f"LISA={self.lisa_penalty:.3f}, "
             f"Composite={self.composite_score():.2f}"
         )
 
@@ -111,18 +117,20 @@ def evaluate_map_multiobjective(
         MultiObjectiveScore with all metrics
     """
     if fast_state is not None:
-        # All three metrics from vectorized fast paths — no TI4Map traversal needed.
+        # All metrics from vectorized fast paths — no TI4Map traversal needed.
         balance_gap = fast_state.balance_gap()
         morans_i = fast_state.morans_i()
         jains_index = fast_state.jains_index()
+        lisa_penalty = fast_state.lisa_penalty()
     else:
         home_values = get_home_values(ti4_map, evaluator)
         balance_gap = get_balance_gap(home_values)
         spatial_analysis = comprehensive_spatial_analysis(ti4_map, evaluator)
         morans_i = spatial_analysis['resource_clustering_morans_i']
         jains_index = spatial_analysis['jains_fairness_index']
+        lisa_penalty = 0.0  # comprehensive_spatial_analysis does not expose LISA penalty
 
-    return MultiObjectiveScore(balance_gap, morans_i, jains_index, weights)
+    return MultiObjectiveScore(balance_gap, morans_i, jains_index, lisa_penalty, weights)
 
 
 def improve_balance_spatial(
@@ -131,34 +139,47 @@ def improve_balance_spatial(
     iterations: int = 200,
     weights: Optional[Dict[str, float]] = None,
     random_seed: Optional[int] = None,
-    verbose: bool = True
+    verbose: bool = True,
+    cooling_rate: float = 0.99,
+    min_temp: float = 0.01,
+    initial_acceptance_rate: float = 0.80,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
-    Improve map balance using multi-objective optimization.
+    Improve map balance using Simulated Annealing over a multi-objective
+    composite fitness (balance_gap + Moran's I + Jain's Index + LISA penalty).
 
-    Uses hill-climbing with a weighted composite fitness function that
-    considers both basic balance and spatial distribution.
+    SA replaces greedy hill-climbing: the Metropolis criterion allows
+    probabilistic acceptance of worse moves at high temperatures, escaping
+    local optima. Temperature decays geometrically until min_temp, at which
+    point the algorithm collapses to a greedy finisher.
+
+    Initial temperature is calibrated dynamically from the local fitness
+    landscape: 10 probe swaps determine the average positive delta, and T₀
+    is chosen so the initial acceptance rate equals initial_acceptance_rate.
 
     Args:
         ti4_map: Map to optimize (modified in-place)
         evaluator: Balance evaluator
-        iterations: Maximum number of iterations
-        weights: Objective weights (balance_gap, morans_i, jains_index)
+        iterations: Maximum number of swap attempts
+        weights: Objective weights (balance_gap, morans_i, jains_index, lisa_penalty)
         random_seed: Random seed for reproducibility
         verbose: Print progress messages
+        cooling_rate: Geometric cooling factor α (T_{k+1} = α·T_k)
+        min_temp: Temperature floor; algorithm stops if T falls below this
+        initial_acceptance_rate: Target P(accept worse move) at T₀ (e.g. 0.80)
 
     Returns:
-        Tuple of (final_score, history)
+        Tuple of (best_score, history)
         history is a list of (iteration, score) tuples
     """
     if random_seed is not None:
         random.seed(random_seed)
 
-    # Build static topology once; balance_gap evaluations use fast matmul.
-    # swappable_spaces[s] corresponds to fast_state.system_value[s].
+    # Build static topology once; fitness evaluations use fast matmul.
     topology = MapTopology.from_ti4_map(ti4_map, evaluator)
     fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
     swappable_spaces = [ti4_map.spaces[i] for i in topology.swappable_indices]
+    sample_indices = list(range(len(swappable_spaces)))
 
     if len(swappable_spaces) < 2:
         raise ValueError("Not enough swappable spaces to optimize")
@@ -168,58 +189,83 @@ def improve_balance_spatial(
     best_score = current_score
     history = [(0, current_score)]
 
+    # ── Calibrate initial temperature ────────────────────────────────────────
+    # Sample up to 10 random swaps and collect positive deltas.
+    # Solve T₀ = -avg_delta / ln(initial_acceptance_rate) so that the
+    # Metropolis criterion accepts ~initial_acceptance_rate of worsening moves.
+    sample_deltas = []
+    for _ in range(10):
+        s1, s2 = random.sample(sample_indices, 2)
+        fast_state.swap(s1, s2)
+        probe = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+        delta = probe.composite_score() - current_score.composite_score()
+        if delta > 0:
+            sample_deltas.append(delta)
+        fast_state.swap(s1, s2)  # revert — ti4_map not touched during probes
+
+    avg_delta = float(np.mean(sample_deltas)) if sample_deltas else 1.0
+    temperature = -avg_delta / math.log(initial_acceptance_rate)
+
+    # Derive cooling_rate from the iteration budget so that temperature reaches
+    # min_temp exactly at iteration `iterations`.  This makes --sa-iter the
+    # authoritative budget knob: α = (min_temp / T₀)^(1/N).
+    # The user-supplied cooling_rate parameter is intentionally overridden here.
+    effective_cooling_rate = (min_temp / temperature) ** (1.0 / max(1, iterations))
+
     if verbose:
         print(f"Initial: {current_score}")
+        print(f"Calibrated T₀={temperature:.4f} (avg_delta={avg_delta:.4f}, "
+              f"target_accept={initial_acceptance_rate:.0%})")
 
-    no_improvement_count = 0
-    max_no_improvement = 50  # Early stopping
-
+    # ── Main SA loop ──────────────────────────────────────────────────────────
+    last_i = 0
     for i in range(1, iterations + 1):
-        # Pick two random swappable-position indices
-        s1, s2 = random.sample(range(len(swappable_spaces)), 2)
+        last_i = i
+        s1, s2 = random.sample(sample_indices, 2)
         space1 = swappable_spaces[s1]
         space2 = swappable_spaces[s2]
 
-        # Apply swap to both fast state and ti4_map (spatial metrics read ti4_map)
+        # Apply swap to both fast state and ti4_map
         fast_state.swap(s1, s2)
         space1.system, space2.system = space2.system, space1.system
 
-        # Evaluate new configuration
         new_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+        delta = new_score.composite_score() - current_score.composite_score()
 
-        # Accept if improved (greedy hill-climbing)
-        if new_score.composite_score() < current_score.composite_score():
+        if delta < 0:
+            # Always accept improvements
             current_score = new_score
-            no_improvement_count = 0
-
             if new_score.composite_score() < best_score.composite_score():
                 best_score = new_score
-
                 if verbose and i % 10 == 0:
-                    print(f"Iteration {i}: {new_score}")
-
+                    print(f"Iteration {i} [T={temperature:.4f}]: {new_score}")
+        elif temperature > min_temp and random.random() < math.exp(-delta / temperature):
+            # Metropolis criterion: probabilistically accept worse move
+            current_score = new_score
         else:
-            # Revert both fast state and ti4_map
+            # Reject — revert both fast state and ti4_map
             fast_state.swap(s1, s2)
             space1.system, space2.system = space2.system, space1.system
-            no_improvement_count += 1
+
+        # Geometric cooling (uses budget-derived rate, not user-supplied cooling_rate)
+        if temperature > min_temp:
+            temperature *= effective_cooling_rate
 
         # Record history every 10 iterations
         if i % 10 == 0:
             history.append((i, current_score))
 
-        # Early stopping if no improvement
-        if no_improvement_count >= max_no_improvement:
+        # Natural SA termination: cooling schedule exhausted
+        if temperature <= min_temp:
             if verbose:
-                print(f"Early stopping at iteration {i} (no improvement for {max_no_improvement} iterations)")
+                print(f"SA converged at iteration {i} (T={temperature:.4f} ≤ min_temp={min_temp})")
             break
 
     if verbose:
-        print(f"Final: {current_score}")
+        print(f"Final best: {best_score}")
 
-    history.append((i, current_score))
-
-    return current_score, history
+    history.append((last_i, best_score))
+    return best_score, history
 
 
 def pareto_optimize(

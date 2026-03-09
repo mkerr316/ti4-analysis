@@ -20,8 +20,6 @@ from pathlib import Path
 from datetime import datetime
 import json
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from ti4_analysis.algorithms.map_generator import generate_random_map
 from ti4_analysis.data.ti4proj_exporter import (

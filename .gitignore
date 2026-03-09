@@ -80,6 +80,9 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# Generated benchmark / optuna output runs
+output/
+
 # Results and data
 results/*.png
 results/*.jpg
@@ -92,3 +95,4 @@ results/*.json
 .DS_Store
 Thumbs.db
 src/ti4_analysis/data/tiles_cache.json
+docs/lit_review/pdfs/
