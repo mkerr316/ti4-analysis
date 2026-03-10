@@ -281,7 +281,10 @@ def local_morans_i(
     - I < 0: Location dissimilar to neighbors (spatial outlier)
 
     Formula for location i:
-        Iᵢ = (xᵢ - x̄) Σⱼ wᵢⱼ(xⱼ - x̄)
+        Iᵢ = (xᵢ - x̄) Σⱼ wᵢⱼ(xⱼ - x̄) / m2
+        where m2 = Σ(xᵢ - x̄)² / n  (spatial variance)
+
+    Normalising by m2 makes values dimensionless; Σ Iᵢ ≈ n × I_global.
 
     Args:
         values: Array of values at each location
@@ -289,7 +292,7 @@ def local_morans_i(
         row_standardized: Whether to row-standardize weights
 
     Returns:
-        Array of local Moran's I values
+        Array of local Moran's I values (dimensionless)
     """
     if row_standardized:
         weights = weights.row_standardize()
@@ -299,10 +302,13 @@ def local_morans_i(
 
     x_mean = values.mean()
     x_dev = values - x_mean
+    m2 = float(x_dev @ x_dev) / n
+    if m2 == 0.0:
+        return np.zeros(n)
 
     local_I = np.zeros(n)
     for i in range(n):
-        local_I[i] = x_dev[i] * (W_matrix[i, :] * x_dev).sum()
+        local_I[i] = x_dev[i] * (W_matrix[i, :] * x_dev).sum() / m2
 
     return local_I
 

@@ -149,16 +149,18 @@ class FastMapState:
 
     def lisa_penalty(self) -> float:
         """
-        LISA penalty: sum of positive local Moran's I values.
+        LISA penalty: sum of positive variance-normalised local Moran's I values.
 
-        local_I[i] = z_dev[i] * (W @ z_dev)[i]
+        local_I[i] = z_dev[i] * (W @ z_dev)[i] / m2
+        where m2 = Σ(z_dev²) / n  (the spatial variance).
+
+        Dividing by m2 makes local_I dimensionless and ensures Σ local_I ≈ n × I_global.
+        Without this normalisation the values scale with the square of system values,
+        causing LISA to dominate the composite score at any fixed weight.
+
         Positive local_I indicates H-H or L-L spatial clusters (resource
         hoarding or resource deserts). Negative local_I indicates spatial
         outliers (H-L or L-H borders), which we do not penalize.
-
-        Omitting the global variance S² is valid here because the tile pool
-        is fixed — S² is a constant that scales all local_I values equally
-        without changing the gradient.
 
         O(nnz) via sparse matmul — same cost as morans_i().
         """
@@ -167,8 +169,11 @@ class FastMapState:
         if n < 3:
             return 0.0
         z_dev = z - z.mean()
+        m2 = float(z_dev @ z_dev) / n
+        if m2 == 0.0:
+            return 0.0
         Wz = self.topology.spatial_W @ z_dev
-        local_I = z_dev * np.asarray(Wz).ravel()
+        local_I = z_dev * np.asarray(Wz).ravel() / m2
         return float(local_I[local_I > 0].sum())
 
     def jains_index(self) -> float:

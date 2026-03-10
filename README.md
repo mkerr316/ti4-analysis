@@ -117,7 +117,11 @@ Spatial weights `wᵢⱼ` are binary adjacency weights, row-standardized. Implem
 
 #### LISA Penalty
 
-Local Indicators of Spatial Association (Anselin, 1995). For each system, the local Moran statistic identifies H-H clusters (high-value systems neighbored by high-value systems) and L-L clusters (low-value systems neighbored by low-value systems). `lisa_penalty` sums the absolute local Moran values across all statistically significant cluster members, penalizing maps where resource richness or poverty is spatially concentrated regardless of whether the global Moran's I detects it.
+Local Indicators of Spatial Association (Anselin, 1995). For each system `i`, the variance-normalised local Moran statistic is:
+
+    Iᵢ = (xᵢ − x̄) × Σⱼ wᵢⱼ(xⱼ − x̄) / m2,   where m2 = Σ(xᵢ − x̄)² / n
+
+Positive `Iᵢ` identifies H-H clusters (high-value systems neighbored by high-value systems) and L-L clusters (low-value systems neighbored by low-value systems). `lisa_penalty` sums only the positive local values, penalizing maps where resource richness or poverty is spatially concentrated regardless of whether the global Moran's I detects it. Dividing by `m2` makes the values dimensionless, ensuring `Σ Iᵢ ≈ n × I_global` and proper scaling relative to the other composite-score terms.
 
 #### Jain's Fairness Index
 
