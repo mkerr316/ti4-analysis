@@ -49,6 +49,8 @@ def parse_args() -> argparse.Namespace:
                    help="Bootstrap resamples (default: 10,000)")
     p.add_argument("--sensitivity", action="store_true",
                    help="Run weight sensitivity analysis across multiple weight configs")
+    p.add_argument("--ablation", action="store_true",
+                   help="Run Multi-Jain vs scalar JFI ablation analysis")
     return p.parse_args()
 
 
@@ -122,7 +124,7 @@ METRICS = [
     "jfi_resources", "jfi_influence",
     "lisa_penalty", "balance_gap",
 ]
-ALGO_ORDER = ["hc", "sa", "nsga2", "ts"]
+ALGO_ORDER = ["rs", "hc", "sa", "nsga2", "ts"]
 
 
 def load_and_validate(csv_path: Path, budget: int = None) -> pd.DataFrame:
@@ -520,6 +522,84 @@ def weight_sensitivity_analysis(
 
 
 # ---------------------------------------------------------------------------
+# Multi-Jain ablation
+# ---------------------------------------------------------------------------
+
+def multi_jain_ablation(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+    """
+    Compare Multi-Jain bottleneck (min) vs scalar JFI (max) to show that
+    the bottleneck catches maps where one dimension is equitable but the
+    other is skewed.
+
+    For each algorithm, recomputes composite scores under two JFI strategies:
+      - bottleneck: 1 - min(jfi_r, jfi_i)   (current Multi-Jain)
+      - optimistic: 1 - max(jfi_r, jfi_i)   (scalar-like, hides worst dimension)
+
+    Reports how often rankings differ and the magnitude of the gap.
+    """
+    if "jfi_resources" not in df.columns or "jfi_influence" not in df.columns:
+        return pd.DataFrame()
+
+    algos = [a for a in ALGO_ORDER if a in df["algorithm"].unique()]
+    if len(algos) < 2:
+        return pd.DataFrame()
+
+    n_spatial = 37
+    lisa_divisor = max(1, n_spatial * (n_spatial - 1))
+    w_jfi = 5 / 13
+    w_moran = 5 / 13
+    w_lisa = 3 / 13
+
+    df_ab = df.copy()
+    df_ab["jfi_bottleneck"] = df_ab[["jfi_resources", "jfi_influence"]].min(axis=1)
+    df_ab["jfi_optimistic"] = df_ab[["jfi_resources", "jfi_influence"]].max(axis=1)
+    df_ab["jfi_gap"] = df_ab["jfi_optimistic"] - df_ab["jfi_bottleneck"]
+
+    df_ab["score_bottleneck"] = (
+        w_moran * df_ab["morans_i"].abs() +
+        w_jfi * (1.0 - df_ab["jfi_bottleneck"]) +
+        w_lisa * df_ab["lisa_penalty"] / lisa_divisor
+    )
+    df_ab["score_optimistic"] = (
+        w_moran * df_ab["morans_i"].abs() +
+        w_jfi * (1.0 - df_ab["jfi_optimistic"]) +
+        w_lisa * df_ab["lisa_penalty"] / lisa_divisor
+    )
+
+    rows = []
+    for strategy in ("bottleneck", "optimistic"):
+        col = f"score_{strategy}"
+        wide = df_ab.pivot(index="seed", columns="algorithm", values=col).dropna()
+        avail = [a for a in algos if a in wide.columns]
+        if len(avail) < 2:
+            continue
+        for a in avail:
+            rows.append({
+                "strategy": strategy,
+                "algorithm": a,
+                "median": float(wide[a].median()),
+                "mean": float(wide[a].mean()),
+            })
+
+    # Per-seed rank comparison
+    wide_bn = df_ab.pivot(index="seed", columns="algorithm", values="score_bottleneck").dropna()
+    wide_op = df_ab.pivot(index="seed", columns="algorithm", values="score_optimistic").dropna()
+    avail = [a for a in algos if a in wide_bn.columns and a in wide_op.columns]
+    if len(avail) >= 2:
+        ranks_bn = wide_bn[avail].rank(axis=1, method="min")
+        ranks_op = wide_op[avail].rank(axis=1, method="min")
+        rank_changes = (ranks_bn != ranks_op).any(axis=1).sum()
+        total_seeds = len(ranks_bn)
+    else:
+        rank_changes = 0
+        total_seeds = 0
+
+    gap_summary = df_ab.groupby("algorithm")["jfi_gap"].agg(["mean", "median", "max"]).round(4)
+
+    return pd.DataFrame(rows), rank_changes, total_seeds, gap_summary
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -610,6 +690,29 @@ def main() -> int:
                         f"{r['pair']}: {r['winner']} (A={r['vda_A']:.3f})"
                     )
                 print(f"     {config_name}: {', '.join(summary_parts)}")
+
+    # Multi-Jain ablation
+    if args.ablation:
+        print("\n── Multi-Jain ablation (bottleneck vs optimistic JFI) ──")
+        result = multi_jain_ablation(df, args.alpha)
+        if isinstance(result, tuple) and len(result) == 4:
+            ab_df, rank_changes, total_seeds, gap_summary = result
+            if not ab_df.empty:
+                ab_path = out_dir / "ablation_multi_jain.csv"
+                ab_df.to_csv(ab_path, index=False)
+                print(f"   Saved to {ab_path}")
+                print(f"   Rank changes: {rank_changes}/{total_seeds} seeds "
+                      f"({100*rank_changes/max(1,total_seeds):.1f}%)")
+                print(f"\n   Per-algorithm JFI dimension gap (max - min):")
+                print(gap_summary.to_string(header=True))
+                print(f"\n   Median composite scores by strategy:")
+                for _, r in ab_df.iterrows():
+                    print(f"     {r['strategy']:12s}  {r['algorithm']:<6s}  "
+                          f"median={r['median']:.4f}")
+            else:
+                print("   Skipped (insufficient data)")
+        else:
+            print("   Skipped (jfi_resources/jfi_influence columns missing)")
 
     return 0
 

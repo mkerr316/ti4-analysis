@@ -2,14 +2,15 @@
 """
 Optuna hyperparameter tuning for the TI4 map optimization algorithms.
 
-Tunes the free parameters of either Simulated Annealing or NSGA-II using
+Tunes the free parameters of SA, NSGA-II, or Tabu Search using
 Bayesian optimization (TPE sampler).  Evaluation seeds are deliberately
 disjoint from benchmark seeds (default base_seed=9000 vs benchmark 0-999)
 to prevent overfitting the hyperparameters to specific map layouts.
 
 Usage:
-    python scripts/optimize_hyperparameters.py --algo sa   [options]
-    python scripts/optimize_hyperparameters.py --algo nsga2 [options]
+    python scripts/optimize_hyperparameters.py --algo sa    [options]
+    python scripts/optimize_hyperparameters.py --algo nsga2  [options]
+    python scripts/optimize_hyperparameters.py --algo ts     [options]
 
 SA search space:
     initial_acceptance_rate  [0.50, 0.99]   — controls T₀ magnitude
@@ -19,6 +20,9 @@ NSGA-II search space:
     blob_fraction            [0.25, 0.75]   — BFS crossover blob size
     mutation_rate            [0.01, 0.30]   — per-position swap probability
     warm_fraction            [0.00, 0.30]   — Gen-0 warm-start fraction
+
+TS search space:
+    tabu_tenure              [3, 20]        — iterations a swap stays forbidden
 
 Outputs (inside --output-dir / optuna_YYYYMMDD_HHMMSS/):
     best_params.json  — optimal hyperparameters + best objective value
@@ -44,7 +48,7 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Optuna hyperparameter tuning for TI4 optimizers")
-    p.add_argument("--algo",        required=True, choices=["sa", "nsga2"],
+    p.add_argument("--algo",        required=True, choices=["sa", "nsga2", "ts"],
                    help="Algorithm to tune")
     p.add_argument("--trials",      type=int, default=50,
                    help="Number of Optuna trials (default: 50)")
@@ -150,6 +154,33 @@ def objective_nsga2(trial, args, evaluator, generate_random_map, nsga2_optimize)
     return statistics.mean(scores)
 
 
+def objective_ts(trial, args, evaluator, generate_random_map, improve_balance_tabu):
+    """Objective for TS: mean composite_score over eval_seeds random maps."""
+    tenure = trial.suggest_int("tabu_tenure", 3, 20)
+
+    scores = []
+    for i in range(args.eval_seeds):
+        seed = args.base_seed + i
+        m = generate_random_map(
+            player_count=args.players,
+            template_name="normal",
+            include_pok=True,
+            random_seed=seed,
+        )
+        score, _ = improve_balance_tabu(
+            m, evaluator,
+            max_evaluations=args.iter_budget,
+            tabu_tenure=tenure,
+            random_seed=seed,
+            verbose=False,
+        )
+        scores.append(score.composite_score())
+        del m
+        gc.collect()
+
+    return statistics.mean(scores)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -170,10 +201,10 @@ def main() -> int:
         )
         return 1
 
-    # Lazy imports of heavy TI4 deps
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.spatial_optimizer import improve_balance_spatial
     from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
+    from ti4_analysis.algorithms.tabu_search_optimizer import improve_balance_tabu
     from ti4_analysis.evaluation.batch_experiment import create_joebrew_evaluator
 
     evaluator = create_joebrew_evaluator()
@@ -259,9 +290,13 @@ def main() -> int:
             obj = lambda trial: objective_sa(
                 trial, args, evaluator, generate_random_map, improve_balance_spatial
             )
-        else:
+        elif args.algo == "nsga2":
             obj = lambda trial: objective_nsga2(
                 trial, args, evaluator, generate_random_map, nsga2_optimize
+            )
+        else:
+            obj = lambda trial: objective_ts(
+                trial, args, evaluator, generate_random_map, improve_balance_tabu
             )
 
         run_start = time.time()

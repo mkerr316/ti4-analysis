@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--players",     type=int, default=6,      help="Number of players")
     p.add_argument("--output-dir",  type=str, default="output", help="Root output directory")
     p.add_argument("--algorithms",  type=str, default="hc,sa,nsga2",
-                   help="Comma-separated algorithms to run (hc, sa, nsga2, ts)")
+                   help="Comma-separated algorithms to run (hc, sa, nsga2, ts, rs)")
     p.add_argument("--workers",     type=int, default=1,
                    help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--ts-tenure",   type=int, default=None,
@@ -133,7 +133,7 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
     print("=" * len(header))
     print(header)
     print("-" * len(header))
-    for algo in ("hc", "sa", "nsga2", "ts"):
+    for algo in ("rs", "hc", "sa", "nsga2", "ts"):
         if algo not in accum:
             continue
         d = accum[algo]
@@ -174,6 +174,8 @@ def _run_seed(job):
 
     algos = set(algos_list)
 
+    import numpy as np
+
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.balance_engine import improve_balance
     from ti4_analysis.algorithms.spatial_optimizer import (
@@ -195,6 +197,28 @@ def _run_seed(job):
             include_pok=True,
             random_seed=seed,
         )
+
+        # ── Random Search (baseline) ──────────────────────────────
+        if "rs" in algos:
+            rs_map = initial_map.copy()
+            t0 = time.time()
+            topo = MapTopology.from_ti4_map(rs_map, evaluator)
+            fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
+            best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
+            rng_rs = np.random.default_rng(seed)
+            S = len(topo.swappable_indices)
+            for _ in range(budget - 1):
+                fs = fs_base.clone()
+                perm = rng_rs.permutation(S)
+                for i in range(S - 1, 0, -1):
+                    if perm[i] != i:
+                        fs.swap(perm[i], i)
+                candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
+                if candidate.composite_score() < best_rs_score.composite_score():
+                    best_rs_score = candidate
+                del fs
+            rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget))
+            del rs_map, topo, fs_base
 
         if "hc" in algos:
             hc_map = initial_map.copy()
@@ -273,7 +297,7 @@ def _run_seed(job):
 def main() -> int:
     args = parse_args()
     algos = {a.strip().lower() for a in args.algorithms.split(",")}
-    valid = {"hc", "sa", "nsga2", "ts"}
+    valid = {"hc", "sa", "nsga2", "ts", "rs"}
     unknown = algos - valid
     if unknown:
         print(f"ERROR: Unknown algorithms: {unknown}. Valid: {valid}", file=sys.stderr)
@@ -393,7 +417,7 @@ def main() -> int:
                     seed_val = rows[0]["seed"] if rows else "?"
 
                     parts = [f"  seed={seed_val:>4}"]
-                    for a in ("hc", "sa", "nsga2", "ts"):
+                    for a in ("rs", "hc", "sa", "nsga2", "ts"):
                         matching = [r for r in rows if r["algorithm"] == a]
                         if matching and not math.isnan(matching[0]["composite_score"]):
                             parts.append(f"{a}={matching[0]['composite_score']:.3f}")

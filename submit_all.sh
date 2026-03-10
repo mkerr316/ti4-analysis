@@ -31,7 +31,7 @@ WORKERS=16
 
 SEEDS=100
 BUDGETS="1000,5000,10000,25000,50000,100000"
-ALGORITHMS="hc,sa,nsga2,ts"
+ALGORITHMS="rs,hc,sa,nsga2,ts"
 PLAYERS=6
 
 TUNING_TRIALS=50
@@ -97,10 +97,20 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --players "$PLAYERS" \
     --output-dir "$OUTPUT_DIR"
 
+echo ""
+echo "--- Phase 1c: Tuning TS (${TUNING_TRIALS} trials, ${TUNING_SEEDS} seeds) ---"
+$PYTHON_BIN scripts/optimize_hyperparameters.py \
+    --algo ts \
+    --trials "$TUNING_TRIALS" \
+    --eval-seeds "$TUNING_SEEDS" \
+    --base-seed "$TUNING_BASE_SEED" \
+    --players "$PLAYERS" \
+    --output-dir "$OUTPUT_DIR"
+
 # ── Extract tuned hyperparameters (fail-loud, no silent defaults) ─────────────
 echo ""
 echo "--- Extracting tuned hyperparameters ---"
-read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM < <(
+read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM TS_TENURE < <(
 $PYTHON_BIN -c "
 import json, glob, sys
 
@@ -110,15 +120,14 @@ for path in sorted(glob.glob('${OUTPUT_DIR}/optuna_*/best_params.json')):
         d = json.load(f)
     params[d['algorithm']] = d['best_params']
 
-if 'sa' not in params:
-    print('FATAL: No SA tuning results found', file=sys.stderr)
-    sys.exit(1)
-if 'nsga2' not in params:
-    print('FATAL: No NSGA-II tuning results found', file=sys.stderr)
-    sys.exit(1)
+for algo in ('sa', 'nsga2', 'ts'):
+    if algo not in params:
+        print(f'FATAL: No {algo.upper()} tuning results found', file=sys.stderr)
+        sys.exit(1)
 
 sa = params['sa']
 ng = params['nsga2']
+ts = params['ts']
 
 print(
     sa['initial_acceptance_rate'],
@@ -126,12 +135,14 @@ print(
     ng['blob_fraction'],
     ng['mutation_rate'],
     ng['warm_fraction'],
+    ts['tabu_tenure'],
 )
 "
 )
 
 echo "  SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "  NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
+echo "  TS:      tenure=$TS_TENURE"
 
 # ── Phase 2: Saturation Study (1k → 100k evaluations, parallel) ──────────────
 echo ""
@@ -147,6 +158,7 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --nsga-blob "$NSGA_BLOB" \
     --nsga-mut "$NSGA_MUT" \
     --nsga-warm "$NSGA_WARM" \
+    --ts-tenure "$TS_TENURE" \
     --output-dir "$OUTPUT_DIR"
 
 # ── Locate results CSV ───────────────────────────────────────────────────────
@@ -160,8 +172,8 @@ echo "Results CSV   : $RESULTS_CSV"
 
 # ── Phase 3: Statistical Analysis ────────────────────────────────────────────
 echo ""
-echo "--- Phase 3a: Non-parametric analysis (Friedman, Wilcoxon, VDA, bootstrap) ---"
-$PYTHON_BIN scripts/analyze_benchmark.py "$RESULTS_CSV" --sensitivity
+echo "--- Phase 3a: Non-parametric analysis + sensitivity + ablation ---"
+$PYTHON_BIN scripts/analyze_benchmark.py "$RESULTS_CSV" --sensitivity --ablation
 
 echo ""
 echo "--- Phase 3b: Publication figures ---"
@@ -172,7 +184,7 @@ echo ""
 echo "--- Phase 4: LISA proxy validation (${LISA_VALIDATION_SEEDS} seeds, ${LISA_PERMS} perms, ${WORKERS} workers) ---"
 $PYTHON_BIN scripts/validate_lisa_proxy.py \
     --seeds "$LISA_VALIDATION_SEEDS" \
-    --algorithms "$ALGORITHMS" \
+    --algorithms "hc,sa,nsga2,ts" \
     --sa-iter "$LISA_VALIDATION_ITER" \
     --hc-iter "$LISA_VALIDATION_ITER" \
     --ts-iter "$LISA_VALIDATION_ITER" \
@@ -191,4 +203,5 @@ echo "Results CSV   : $RESULTS_CSV"
 echo "------------------------------------------------------------"
 echo "Tuned SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "Tuned NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
+echo "Tuned TS:      tenure=$TS_TENURE"
 echo "============================================================"

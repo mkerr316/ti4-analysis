@@ -44,9 +44,12 @@ plt.rcParams.update({
     "savefig.pad_inches": 0.05,
 })
 
-ALGO_NAMES = {"hc": "HC", "sa": "SA", "nsga2": "NSGA-II", "ts": "TS"}
-ALGO_ORDER = ["hc", "sa", "nsga2", "ts"]
-PALETTE = {"HC": "#4C72B0", "SA": "#DD8452", "NSGA-II": "#55A868"}
+ALGO_NAMES = {"rs": "RS", "hc": "HC", "sa": "SA", "nsga2": "NSGA-II", "ts": "TS"}
+ALGO_ORDER = ["rs", "hc", "sa", "nsga2", "ts"]
+PALETTE = {
+    "RS": "#937860", "HC": "#4C72B0", "SA": "#DD8452",
+    "NSGA-II": "#55A868", "TS": "#C44E52",
+}
 
 
 def parse_args():

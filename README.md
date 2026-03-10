@@ -234,6 +234,10 @@ Full-neighbourhood deterministic search with short-term memory. Each iteration e
 
 **Role.** TS serves as a *methodological control*: the Terra Mystica PCG literature (Sironi et al., 2019) demonstrated TS superiority over steepest-ascent HC for tabletop map generation. Including TS validates whether SA's stochastic escape mechanism is redundant with TS's deterministic memory, or whether the two approaches find qualitatively different solutions. If TS ≈ SA at convergence, SA's lower per-iteration cost makes it the strictly superior production algorithm.
 
+#### Random Search (RS) — Baseline
+
+Uniform random sampling over the full permutation space. For each evaluation, RS generates a uniformly random arrangement of all swappable tiles (via Fisher-Yates shuffle), scores the result, and retains the best score seen. Each sample is independent — no sequential memory, no gradient signal. RS establishes whether the metaheuristic search strategies (SA, TS, NSGA-II) add value beyond brute-force random exploration. If SA cannot statistically outperform RS at the same evaluation budget, the search intelligence is provably unnecessary.
+
 #### Algorithm Role Summary
 
 | Algorithm | Research Role | Production Role (Rust App) |
@@ -242,6 +246,7 @@ Full-neighbourhood deterministic search with short-term memory. Each iteration e
 | **SA** | Production baseline: proven to reach near-optimal quality in a fraction of the time | Default live engine for "Generate New Map" clicks (<2 s) |
 | **TS** | Methodological control: validates that SA's stochastic escape is not missing deterministic-memory-accessible optima | Excluded from production: high per-iteration cost for marginal gain |
 | **HC** | Lower bound: establishes the baseline quality achievable without local-optima escape | Warm-start seed for NSGA-II population inoculation |
+| **RS** | Null baseline: proves that intelligent search outperforms uniform random sampling | Not applicable |
 
 #### Bayesian Optimization (BO) — Excluded
 
@@ -257,7 +262,8 @@ BO is excluded from the benchmark. The per-evaluation cost of TI4 map fitness (<
   - SA: 1,000 iterations (cooling schedule derived as above)
   - NSGA-II: 50 generations × population of 20 = 1,000 evaluations
   - TS: full-neighbourhood iterations until budget exhausted (≈ 2 iterations at 1,000 budget)
-- **Hyperparameter tuning:** SA and NSGA-II parameters tuned separately on a disjoint seed range (9,000–9,014) using Bayesian TPE optimization via Optuna; tuned parameters are fixed for the main benchmark
+- **Hyperparameter tuning:** SA, NSGA-II, and TS parameters tuned separately on a disjoint seed range (9,000–9,014) using Bayesian TPE optimization via Optuna (50 trials each); tuned parameters are fixed for the main benchmark. TS tunes `tabu_tenure` ∈ [3, 20] to ensure symmetric treatment across all stochastic algorithms
+- **Ablation:** Multi-Jain bottleneck JFI vs optimistic (max-dimension) JFI comparison to demonstrate that the bottleneck formulation catches maps with hidden dimensional imbalance
 - **Compute:** University of Georgia Sapelo2 HPC cluster; run configuration recorded in [`output/sapelo2-run-20260310/run_config.json`](output/sapelo2-run-20260310/run_config.json)
 
 ---
