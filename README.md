@@ -1,437 +1,292 @@
 # TI4 Map Balance Analysis
 
-Scientific analysis and visualization toolkit for Twilight Imperium 4 map balancing algorithms.
-
-This Python package provides rigorous mathematical analysis of the balancing algorithms used in the [TI4 Map Generator](https://github.com/KeeganW/ti4), implementing advanced spatial statistics proposed in the research documentation.
-
-## 🚀 Quick Start: Export to Frontend
-
-Generate balanced maps in Python and visualize them in the 3D TypeScript frontend:
-
-```python
-from ti4_analysis.algorithms.map_generator import generate_random_map
-from ti4_analysis.data.ti4proj_exporter import export_to_ti4proj
-
-# Generate a balanced 6-player map
-map_obj = generate_random_map(player_count=6, random_seed=42)
-
-# Export to .ti4proj format (loads directly in the frontend)
-export_to_ti4proj(
-    map_obj,
-    "output/my_map.ti4proj",
-    map_name="Balanced 6-Player Map",
-    jaines_index=0.95,  # Balance metric
-    morans_i=0.12       # Spatial autocorrelation
-)
-```
-
-**Next:** Open `my_map.ti4proj` in TI4 Map Analyzer to see your map in 3D!
-
-📖 **See:** [QUICK_START_EXPORT.md](QUICK_START_EXPORT.md) | [Full Integration Guide](PYTHON_TO_TYPESCRIPT_INTEGRATION.md)
+Rigorous spatial-statistical evaluation of map balancing algorithms for *Twilight Imperium IV* (TI4), combining classical fairness metrics with local spatial association analysis to identify and penalize pathological resource distributions.
 
 ---
 
-## Features
+## Abstract
 
-### Core Algorithms
-- **Hexagonal Grid Mathematics**: Cube coordinate system with distance calculations, pathfinding, and spatial operations
-- **Balance Optimization Engine**: Iterative swapping algorithm (ti4-map-lab) with greedy hill climbing
-- **Distance-Weighted Evaluation**: Accessibility-based scoring with configurable evaluator strategies
+Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. This project formalizes three optimization algorithms — greedy hill-climbing (HC), simulated annealing (SA), and NSGA-II — against a composite objective that integrates balance gap, Moran's I spatial autocorrelation, and a LISA-based local cluster penalty. Under an equal 1,000-evaluation budget across 100 randomly generated maps, SA achieves a mean composite score of 75.42 versus 103.09 for NSGA-II and 105.78 for HC, while completing in 1.80 seconds versus 6.14 seconds for NSGA-II. The primary finding is that SA's lightweight Markov-chain trajectory search dedicates the full evaluation budget to map exploration, whereas NSGA-II expends a substantial share of the same budget on non-dominated sorting and crowding distance bookkeeping — a systematic disadvantage at low evaluation ceilings.
 
-### Advanced Spatial Statistics
-Implementation of metrics from `docs/Twilight Imperium Map Balance Research.md`:
+---
 
-- **Moran's I**: Spatial autocorrelation (resource clustering detection)
-- **Getis-Ord Gi***: Hot spot analysis (identifies resource-rich clusters)
-- **Gravity Model**: Distance-weighted accessibility calculation
-- **Jain's Fairness Index**: Equality of resource distribution
-- **Local Indicators of Spatial Association (LISA)**: Neighborhood-based clustering
+## Key Results
 
-### Visualization
-Publication-quality plots using Matplotlib and Seaborn:
-- Hexagonal map rendering
-- System value heatmaps
-- Balance convergence plots
-- Before/after comparisons
-- Comprehensive balance reports
+### Algorithm Comparison
 
-### Testing
-- **Property-based testing** with Hypothesis
-- **Mathematical verification** of key algorithms
-- **Unit tests** for all core functionality
+| Algorithm | Mean Composite Score | Std Dev | Mean Wall-clock Time |
+| --------- | -------------------- | ------- | -------------------- |
+| Simulated Annealing (SA) | **75.42** | 58.54 | **1.80 s** |
+| NSGA-II | 103.09 | 56.92 | 6.14 s |
+| Greedy Hill-Climbing (HC) | 105.78 | 60.73 | 3.30 s |
+
+*N = 100 random map seeds. Equal budget: 1,000 fitness evaluations per algorithm per seed. Run on the University of Georgia Sapelo2 HPC cluster (git: `2c252a6`).*
+
+![Composite score boxplot](output/sapelo2-run-20260310/viz/fig1_composite_score_boxplot.png)
+
+**Figure 1.** Grouped boxplot of composite score by algorithm across 100 seeds. Diamond markers indicate per-group means. Individual observations are overlaid as jittered points.
+
+---
+
+### Spatial Decomposition — The Bookkeeping Tax
+
+Figure 2 decomposes the composite score advantage into its three constituent objectives.
+
+![Per-objective boxplots](output/sapelo2-run-20260310/viz/fig2_per_objective_boxplots.png)
+
+**Figure 2.** Per-objective distributions by algorithm. Left: balance gap (raw resource equality). Center: LISA penalty (local spatial cluster penalty). Right: |Moran's I| (global spatial autocorrelation).
+
+The `balance_gap` panel reveals that all three algorithms achieve comparable numeric resource equality; the greedy structure of HC is sufficient for this scalar objective. The discriminating metric is `lisa_penalty`. HC and NSGA-II reduce the balance gap but fail to prevent the formation of local high-high (H-H) and low-low (L-L) spatial clusters — configurations in which similarly valued systems concentrate in adjacent neighborhoods, conferring systematic positional advantage on the player whose home system neighbors the H-H cluster. SA is the only algorithm that consistently suppresses these local outliers without sacrificing numeric balance.
+
+This pattern is consistent with the computational structure of each algorithm. At a strict 1,000-evaluation ceiling, NSGA-II must perform non-dominated sorting and crowding distance calculation at every generation boundary. These operations do not evaluate new map configurations; they impose an overhead tax that reduces the number of distinct tile permutations the algorithm can examine. SA, as a single-trajectory Markov chain, carries zero per-step overhead and allocates the entire budget to actual map space exploration.
+
+---
+
+### Efficiency Frontier
+
+![Efficiency scatter](output/sapelo2-run-20260310/viz/fig3_efficiency_scatter.png)
+
+**Figure 3.** Composite score versus wall-clock time for all 300 observations. Diamond markers indicate per-algorithm means; ellipses enclose 95% confidence regions. SA occupies the lower-left corner of the quality-speed plane, indicating Pareto dominance over both HC and NSGA-II in both dimensions simultaneously.
+
+---
+
+### Reliability Across Map Seeds
+
+![Per-seed improvement](output/sapelo2-run-20260310/viz/fig4_per_seed_improvement.png)
+
+**Figure 4.** Percentage improvement in composite score over the HC baseline for each of the 100 seeds, sorted in ascending order of HC difficulty (easiest map left, hardest right). SA maintains a consistent improvement of approximately 20–30% across the full spectrum of map configurations. This refutes the hypothesis that SA's advantage is driven by a subset of atypically easy seeds; the gain is generalized and does not degrade on maps where the greedy baseline struggles most.
+
+---
+
+## Research Questions
+
+**RQ1:** Does the choice of optimization algorithm significantly affect spatial fairness metrics beyond numeric balance?
+
+*Yes. Balance gap is nearly indistinguishable across algorithms, but LISA penalty separates SA from HC and NSGA-II by a factor of approximately 2× in median value (Figure 2, center panel).*
+
+**RQ2:** Under a fixed evaluation budget, does SA's lightweight overhead confer a systematic quality advantage over NSGA-II?
+
+*Yes. The quality gap is consistent across all 100 seeds and is accompanied by a 3.4× reduction in wall-clock time, confirming that overhead — not solution quality per generation — is the binding constraint for NSGA-II at this budget level.*
+
+**RQ3:** Can LISA penalty serve as a discriminating metric where Jain's Index and Moran's I are insufficient?
+
+*Yes. Jain's Index is collinear with balance gap and provides no additional discriminating power in this experiment. Global Moran's I is also nearly uniform across algorithms. LISA penalty is the only metric that captures the local neighborhood structure relevant to per-player strategic advantage.*
+
+---
+
+## Methods
+
+### Problem Formulation
+
+Map optimization is framed as minimization of a weighted composite score over three spatial objectives:
+
+```text
+score = w₁ · balance_gap
+      + w₂ · |morans_i|
+      + w₃ · (1 - jains_index)
+      + w₄ · lisa_penalty
+```
+
+Default weights: `w₁ = 1.0`, `w₂ = 0.5`, `w₃ = 0.5` (sign-flipped because Jain's Index is maximized), `w₄ = 0.3`. These are defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py).
+
+---
+
+### Metrics
+
+#### Balance Gap
+
+```text
+gap = max(player_values) - min(player_values)
+```
+
+where `player_value` is the distance-weighted sum of accessible system resources under the Joebrew evaluator (GREATEST_PLUS_TECH strategy: value = max(Resources, Influence) + tech specialty bonus).
+
+#### Moran's I
+
+Global spatial autocorrelation statistic:
+
+```text
+I = (N / W) × [Σᵢ Σⱼ wᵢⱼ (xᵢ − x̄)(xⱼ − x̄)] / Σᵢ (xᵢ − x̄)²
+```
+
+- I > 0: positive autocorrelation (similar values cluster)
+- I ≈ 0: spatially random pattern
+- I < 0: negative autocorrelation (checkerboard dispersion)
+
+Spatial weights `wᵢⱼ` are binary adjacency weights, row-standardized. Implemented in [`src/ti4_analysis/spatial_stats/spatial_metrics.py`](src/ti4_analysis/spatial_stats/spatial_metrics.py).
+
+#### LISA Penalty
+
+Local Indicators of Spatial Association (Anselin, 1995). For each system, the local Moran statistic identifies H-H clusters (high-value systems neighbored by high-value systems) and L-L clusters (low-value systems neighbored by low-value systems). `lisa_penalty` sums the absolute local Moran values across all statistically significant cluster members, penalizing maps where resource richness or poverty is spatially concentrated regardless of whether the global Moran's I detects it.
+
+#### Jain's Fairness Index
+
+```text
+J = (Σ xᵢ)² / (n × Σ xᵢ²)
+```
+
+Range [1/n, 1]; J = 1 indicates perfect equality. Included in the composite score but collinear with balance gap in practice; retained for completeness.
+
+#### Getis-Ord Gi* (Hot Spot Analysis)
+
+```text
+Gi* = [Σⱼ wᵢⱼ xⱼ − X̄ Σⱼ wᵢⱼ] / [S √((n Σⱼ wᵢⱼ² − (Σⱼ wᵢⱼ)²) / (n−1))]
+```
+
+|Gi*| > 1.96 indicates a statistically significant cluster at 95% confidence. Used for exploratory analysis; not included in the benchmark composite score.
+
+---
+
+### Algorithms
+
+#### Greedy Hill-Climbing (HC)
+
+Iterative system-swap search that accepts a candidate move if and only if it strictly reduces the composite score. Carries no memory of prior states. Acts as the baseline: it serves as a lower bound on optimization quality and an upper bound on simplicity.
+
+#### Simulated Annealing (SA)
+
+Markov-chain search with acceptance criterion `P(accept) = exp(-Δ/T)`. Initial temperature `T₀` is calibrated by running a probe phase to achieve the specified `initial_acceptance_rate` for random uphill moves. The cooling rate is derived from the iteration budget as:
+
+```text
+eff_rate = (min_temp / T₀)^(1 / N)
+```
+
+This ensures that the temperature schedule spans exactly N steps regardless of the `min_temp` or `T₀` values, making `--sa-iter` the authoritative budget parameter (Kirkpatrick et al., 1983).
+
+#### NSGA-II
+
+Non-dominated sorting genetic algorithm optimizing the three-objective Pareto front (balance_gap, |morans_i|, lisa_penalty). Crossover uses a BFS-connected blob operator: a contiguous region of tiles is selected by breadth-first expansion from a random origin and swapped between two parent maps. This preserves local spatial coherence through crossover and is more likely to generate topologically valid offspring than radial wedge or uniform crossover. Population is initialized with a mix of warm starts (greedy HC solutions) and cold starts (random permutations). Non-dominated sorting and crowding distance selection follow Deb et al. (2002) exactly.
+
+*Note:* Jain's Index is intentionally excluded from the Pareto objectives. It is nearly collinear with balance gap, and including a fourth objective in a 1,000-evaluation budget exacerbates the curse of dimensionality in many-objective settings.
+
+---
+
+### Experimental Protocol
+
+- **Seeds:** 100 randomly generated 6-player TI4 maps (base seeds 0–999)
+- **Budget:** 1,000 fitness evaluations per algorithm per seed
+  - HC: 1,000 swap-evaluate iterations
+  - SA: 1,000 iterations (cooling schedule derived as above)
+  - NSGA-II: 50 generations × population of 20 = 1,000 evaluations
+- **Hyperparameter tuning:** SA and NSGA-II parameters tuned separately on a disjoint seed range (9,000–9,014) using Bayesian TPE optimization via Optuna; tuned parameters are fixed for the main benchmark
+- **Compute:** University of Georgia Sapelo2 HPC cluster; run configuration recorded in [`output/sapelo2-run-20260310/run_config.json`](output/sapelo2-run-20260310/run_config.json)
+
+---
+
+## Project Structure
+
+```text
+ti4-analysis/
+├── src/ti4_analysis/
+│   ├── algorithms/
+│   │   ├── balance_engine.py        # Greedy HC baseline
+│   │   ├── spatial_optimizer.py     # SA + MultiObjectiveScore
+│   │   ├── nsga2_optimizer.py       # NSGA-II with BFS crossover
+│   │   ├── map_generator.py         # Random map generation
+│   │   ├── hex_grid.py              # Cube-coordinate geometry
+│   │   ├── map_topology.py          # Static weight matrix (vectorized)
+│   │   └── fast_map_state.py        # NumPy map state for O(1) swaps
+│   ├── spatial_stats/
+│   │   └── spatial_metrics.py       # Moran's I, LISA, Jain's, Gi*
+│   └── evaluation/
+│       └── batch_experiment.py      # Evaluator factory
+├── scripts/
+│   ├── benchmark_engine.py          # Monte Carlo benchmark (CLI)
+│   ├── optimize_hyperparameters.py  # Bayesian hyperparameter tuning (Optuna)
+│   └── plot_benchmark.py            # Publication figures from results.csv
+├── output/
+│   └── sapelo2-run-20260310/
+│       ├── results.csv              # 300-row benchmark results
+│       ├── run_config.json          # Reproducibility metadata + git hash
+│       └── viz/                     # Generated figures (PNG + SVG)
+├── tests/                           # pytest suite (property-based + unit)
+├── docs/
+│   └── lit_review/                  # Literature synthesis (.md files)
+├── pyproject.toml
+└── README.md
+```
 
 ---
 
 ## Installation
 
-### Prerequisites
-- Python 3.9 or higher
-- pip package manager
+**Requirements:** Python 3.9 or higher.
 
-### Setup
-
-1. **Clone the repository** (if not already done):
 ```bash
-cd ti4_map_generator/ti4-analysis
-```
+# Clone and enter the repository
+cd ti4-analysis
 
-2. **Create a virtual environment** (recommended):
-```bash
+# Create and activate a virtual environment
 python -m venv venv
+source venv/bin/activate        # macOS / Linux
+# venv\Scripts\activate         # Windows
 
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-3. **Install dependencies**:
-```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-4. **Install in development mode**:
-```bash
+# Install the package in development mode
 pip install -e .
+
+# Verify
+python -c "import ti4_analysis; print('Installation successful')"
 ```
 
-5. **Verify installation**:
-```bash
-python -c "import ti4_analysis; print('✓ Installation successful')"
-```
-
----
-
-## Quick Start
-
-### Example 1: Basic Balance Analysis
-
-```python
-from ti4_analysis.algorithms.hex_grid import HexCoord
-from ti4_analysis.data.map_structures import Planet, System, MapSpace, MapSpaceType, Evaluator
-from ti4_analysis.algorithms.balance_engine import TI4Map, improve_balance, analyze_balance
-
-# Create a simple map
-home1 = MapSpace(HexCoord(0, 0, 0), MapSpaceType.HOME)
-home2 = MapSpace(HexCoord(3, -3, 0), MapSpaceType.HOME)
-
-planet = Planet("Test Planet", resources=3, influence=2)
-system = System(id=1, planets=[planet])
-sys_space = MapSpace(HexCoord(1, -1, 0), MapSpaceType.SYSTEM, system)
-
-ti4_map = TI4Map([home1, home2, sys_space])
-
-# Create evaluator
-evaluator = Evaluator(name="Joebrew")
-
-# Analyze balance
-analysis = analyze_balance(ti4_map, evaluator)
-print(f"Balance Gap: {analysis['balance_gap']:.2f}")
-print(f"Fairness Index: {analysis['fairness_index']:.3f}")
-
-# Optimize balance
-final_gap, history = improve_balance(ti4_map, evaluator, iterations=100)
-print(f"Optimized Gap: {final_gap:.2f}")
-```
-
-### Example 2: Spatial Statistics
-
-```python
-from ti4_analysis.spatial_stats.spatial_metrics import (
-    comprehensive_spatial_analysis, identify_hotspots
-)
-
-# Run comprehensive spatial analysis
-results = comprehensive_spatial_analysis(ti4_map, evaluator)
-
-print(f"Moran's I (clustering): {results['resource_clustering_morans_i']:.3f}")
-print(f"Gini Coefficient: {results['gini_coefficient']:.3f}")
-print(f"Hot spots detected: {results['num_hotspots']}")
-
-# Identify specific hot/cold spots
-hotspots = identify_hotspots(ti4_map, evaluator)
-for coord, gi_star, spot_type in hotspots:
-    print(f"{spot_type}: {coord} (Gi* = {gi_star:.2f})")
-```
-
-### Example 3: Visualization
-
-```python
-import matplotlib.pyplot as plt
-from ti4_analysis.visualization.map_viz import create_balance_report
-
-# Create comprehensive report
-fig = create_balance_report(ti4_map, evaluator, history)
-plt.savefig('balance_report.png', dpi=300, bbox_inches='tight')
-plt.show()
-```
-
----
-
-## Jupyter Notebooks
-
-Interactive examples are provided in the [notebooks/](./notebooks/) directory:
-
-- **01_balance_analysis_example.ipynb**: Complete walkthrough of balance optimization and spatial statistics
-
-### Running Notebooks
+`optuna` is an optional dependency, required only for hyperparameter tuning:
 
 ```bash
-jupyter notebook notebooks/
+pip install optuna
 ```
 
 ---
-## Documentation
 
-Detailed technical documentation is available in the [`docs/`](./docs/) directory:
+## Reproducing the Benchmark
 
-- **[Anomaly Pathfinding](./docs/ANOMALY_PATHFINDING.md)**: Comprehensive guide to how the pathfinding algorithm handles TI4 anomaly systems (asteroid fields, supernovas, gravity rifts, nebulas). Includes mathematical models, edge cases, and implementation details.
+```bash
+# 1. Run the full benchmark (approximately 10–15 minutes on a modern laptop)
+python scripts/benchmark_engine.py --seeds 100 --output-dir output/my_run/
 
-For game design research and spatial theory, see the root [docs/](../docs/) directory.
+# 2. Generate publication figures
+python scripts/plot_benchmark.py --csv output/my_run/results.csv
 
----
-
-
-## Project Structure
-
+# 3. (Optional) Tune SA hyperparameters with Bayesian optimization
+python scripts/optimize_hyperparameters.py --algo sa --trials 50 --eval-seeds 15
 ```
-ti4-analysis/
-├── src/ti4_analysis/
-│   ├── algorithms/
-│   │   ├── hex_grid.py          # Hexagonal grid mathematics
-│   │   └── balance_engine.py    # Balance optimization algorithm
-│   ├── data/
-│   │   └── map_structures.py    # Planet, System, Map classes
-│   ├── spatial_stats/
-│   │   └── spatial_metrics.py   # Moran's I, Getis-Ord, etc.
-│   └── visualization/
-│       └── map_viz.py           # Plotting functions
-├── tests/
-│   ├── test_hex_grid.py         # Property-based tests
-│   └── test_balance_engine.py   # Balance algorithm tests
-├── notebooks/
-│   └── 01_balance_analysis_example.ipynb
-├── docs/                         # Technical documentation
-├── results/                      # Output directory for plots
-├── pyproject.toml               # Modern Python packaging
-├── requirements.txt             # Dependencies
-└── README.md                    # This file
-```
+
+The benchmark script streams results to CSV as each seed completes, so a partial run is not lost on interruption. Submit to an HPC cluster by wrapping the command in a SLURM batch script with `--output-dir` pointing to a shared filesystem path.
 
 ---
 
 ## Running Tests
 
 ```bash
-# Run all tests
+# Full test suite
 pytest
 
-# Run with coverage
+# With coverage report
 pytest --cov=ti4_analysis --cov-report=html
 
-# Run specific test file
-pytest tests/test_hex_grid.py
-
-# Run property-based tests with more examples
-pytest tests/test_hex_grid.py --hypothesis-show-statistics
-
-# Run the minimal validation suite (TS-Hybrid vs. SATS-BO experiments)
-pytest -m minimal_validation
-```
-
-The validation harnesses look for a cascade dataset via the environment variable
-`TI4_VALIDATION_DATA`. When the path is absent (the default for CI runs), the tests
-fallback to deterministic synthetic samples, keeping the suite lightweight.
-
-The TS-Hybrid calibration assumes a calm regime with importance-weight variance
-below `0.05` and temporal-difference drift below `0.2`. The heavy-tail probe pushes
-importance weights up to ~3 and drives TD drift far beyond that limit, providing the
-decisive pass/fail contrast described in `docs/Defending Complex System Design.md`.
-
----
-
-## Key Concepts
-
-### Hexagonal Grid (Cube Coordinates)
-
-We use cube coordinates for hexagonal grids where each hex is represented by `(x, y, z)` with the constraint `x + y + z = 0`. This provides elegant distance and pathfinding algorithms.
-
-**Distance Formula**:
-```
-d(a, b) = max(|ax - bx|, |ay - by|, |az - bz|)
-```
-
-### Balance Optimization
-
-The balance engine minimizes the "balance gap" (difference between most and least advantaged players) through iterative system swapping:
-
-1. Calculate home value for each player position
-2. Compute gap = max(values) - min(values)
-3. Randomly swap two eligible systems
-4. Accept swap if gap decreases (greedy)
-5. Repeat for N iterations
-
-This is a **local search / hill climbing** algorithm that may find local minima.
-
-### Evaluator Strategies
-
-Three planet evaluation strategies:
-
-- **SUM**: Total value = Resources + Influence + Tech
-- **GREATEST**: Value = max(Resources, Influence, Tech)
-- **GREATEST_PLUS_TECH**: Value = max(Resources, Influence) + Tech
-
-The "Joebrew" evaluator uses GREATEST_PLUS_TECH with resource multiplier 3×, influence 2×, and tech specialty bonus 5.
-
-### Spatial Statistics
-
-**Moran's I**:
-```
-I = (N/W) × Σᵢ Σⱼ wᵢⱼ(xᵢ - x̄)(xⱼ - x̄) / Σᵢ(xᵢ - x̄)²
-```
-- I > 0: Spatial clustering (similar values near each other)
-- I ≈ 0: Random spatial pattern
-- I < 0: Spatial dispersion (dissimilar values near each other)
-
-**Getis-Ord Gi*** (hot spot detection):
-```
-Gi* = [Σⱼ wᵢⱼxⱼ - X̄ Σⱼ wᵢⱼ] / [S√((n Σⱼ wᵢⱼ² - (Σⱼ wᵢⱼ)²) / (n-1))]
-```
-- |Gi*| > 1.96: Statistically significant at 95% confidence
-- Gi* > 0: Hot spot (high-value cluster)
-- Gi* < 0: Cold spot (low-value cluster)
-
-**Jain's Fairness Index**:
-```
-J = (Σxᵢ)² / (n × Σxᵢ²)
-```
-- Range: [1/n, 1]
-- J = 1: Perfect fairness
-- J = 1/n: Maximum unfairness
-
----
-
-## Research Implementation Status
-
-### ✅ Implemented
-- Hexagonal grid mathematics
-- Distance-weighted accessibility (Gravity Model)
-- Iterative balance optimization
-- Moran's I spatial autocorrelation
-- Getis-Ord Gi* hot spot analysis
-- Jain's Fairness Index
-- Local Moran's I (LISA)
-- Gini coefficient
-- Comprehensive visualization suite
-
-### 🚧 Proposed (from research docs)
-- Multi-objective Pareto optimization
-- Betweenness centrality (strategic chokepoints)
-- Voronoi tessellation (territorial analysis)
-- Forward dock positioning analysis
-- Player-to-player distance symmetry
-- Empirical validation studies
-
----
-
-## Dependencies
-
-### Core Scientific Stack
-- **NumPy** (≥1.24): Numerical computing
-- **SciPy** (≥1.11): Scientific algorithms and spatial analysis
-- **Pandas** (≥2.0): Data manipulation
-
-### Spatial Analysis
-- **PySAL** (≥23.7): Python Spatial Analysis Library
-- **libpysal** (≥4.9): Spatial weights and I/O
-- **esda** (≥2.5): Exploratory Spatial Data Analysis
-- **GeoPandas** (≥0.14): Geographic data structures
-
-### Visualization
-- **Matplotlib** (≥3.7): Publication-quality plots
-- **Seaborn** (≥0.12): Statistical visualization
-- **Plotly** (≥5.17): Interactive plots
-
-### Graph Theory
-- **NetworkX** (≥3.1): Graph algorithms (for future betweenness centrality)
-
-### Testing
-- **pytest** (≥7.4): Testing framework
-- **pytest-cov** (≥4.1): Coverage reports
-- **Hypothesis** (≥6.88): Property-based testing
-
-### Interactive Analysis
-- **Jupyter** (≥1.0): Notebook environment
-- **IPyKernel** (≥6.25): Jupyter kernel
-- **IPyWidgets** (≥8.1): Interactive widgets
-
----
-
-## Performance Notes
-
-- **Balance Optimization**: O(iterations × systems × players) - typically <1s for 100 iterations
-- **Spatial Statistics**: O(n²) for weight matrix construction, then O(n) for metrics
-- **Visualization**: Matplotlib rendering scales well up to ~100 hexes
-
-For large maps (>100 systems), consider:
-- Reducing max pathfinding distance
-- Using sparse weight matrices
-- Enabling Numba JIT compilation (future enhancement)
-
----
-
-## Contributing
-
-This is a research and analysis tool. Contributions welcome for:
-
-- Additional spatial metrics (betweenness centrality, Voronoi analysis)
-- Optimization algorithms (simulated annealing, genetic algorithms)
-- Integration with JavaScript codebase (JSON import/export)
-- Performance improvements (Numba, Cython)
-- Empirical validation studies
-
----
-
-## Citation
-
-If you use this toolkit in research, please cite:
-
-```
-TI4 Map Balance Analysis Toolkit
-Repository: https://github.com/KeeganW/ti4
-Documentation: docs/Twilight Imperium Map Balance Research.md
+# Specific module
+pytest tests/test_nsga2_optimizer.py -v
 ```
 
 ---
 
 ## References
 
-### Spatial Statistics
-- Anselin, L. (1995). Local indicators of spatial association—LISA. *Geographical Analysis*, 27(2), 93-115.
-- Getis, A., & Ord, J. K. (1992). The analysis of spatial association by use of distance statistics. *Geographical Analysis*, 24(3), 189-206.
+Anselin, L. (1995). Local indicators of spatial association — LISA. *Geographical Analysis*, 27(2), 93–115.
 
-### Fairness Metrics
-- Jain, R., Chiu, D. M., & Hawe, W. R. (1984). A quantitative measure of fairness and discrimination. *DEC Research Report TR-301*.
+Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002). A fast and elitist multiobjective genetic algorithm: NSGA-II. *IEEE Transactions on Evolutionary Computation*, 6(2), 182–197.
 
-### Hexagonal Grids
-- Red Blob Games: [Hexagonal Grids](https://www.redblobgames.com/grids/hexagons/)
+Getis, A., & Ord, J. K. (1992). The analysis of spatial association by use of distance statistics. *Geographical Analysis*, 24(3), 189–206.
+
+Jain, R., Chiu, D. M., & Hawe, W. R. (1984). A quantitative measure of fairness and discrimination for resource allocation in shared computer systems. *DEC Research Report TR-301*.
+
+Kirkpatrick, S., Gelatt, C. D., & Vecchi, M. P. (1983). Optimization by simulated annealing. *Science*, 220(4598), 671–680.
+
+Moran, P. A. P. (1950). Notes on continuous stochastic phenomena. *Biometrika*, 37(1/2), 17–23.
 
 ---
 
 ## License
 
-Same as parent repository (see root LICENSE file).
-
----
-
-## Support
-
-For questions or issues:
-1. Check the [Jupyter notebooks](./notebooks/) for examples
-2. Review the research documentation in [../docs/](../docs/)
-3. Open an issue on GitHub
-
----
-
-**Happy analyzing!** 🎲🔬
+Same as the parent repository. See the root `LICENSE` file.
