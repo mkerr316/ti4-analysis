@@ -33,11 +33,11 @@ This repository implements a rigorous academic framework for comparing multi-obj
 
 ### Objective hierarchy (Nominal Scalarization)
 
-Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization**. It provides a fixed target for single-objective trajectories (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+). HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** — the combined set of all observed non-dominated points across seeds — which is the standard approach when the true Pareto front of the problem is unknown.
+**Track B (HV, IGD+, Spacing) is the primary evaluation** — the weight-independent Pareto metrics are the gold standard for the manuscript and disarm concerns about arbitrary weighting. Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization**. It provides a fixed target for single-objective trajectories (SA, TS, HC, SGA). The 5:5:3 choice is defensible only when **weight-sensitivity analysis** (`analyze_benchmark.py --sensitivity`) shows that algorithm rankings (e.g. SA over HC) hold across equal weights, JFI-dominant, and spatial-dominant configurations; then 5:5:3 serves as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** — the combined set of all observed non-dominated points across seeds — which is the standard approach when the true Pareto front of the problem is unknown.
 
 ## Dependent Variables (Gold-Standard Quality Indicators)
 
-### Primary Metrics (Track B — implemented in `scripts/quality_indicators.py`)
+### Primary Metrics (Track B — gold standard; implemented in `scripts/quality_indicators.py`)
 - **Hypervolume (HV)**: Volume dominated by Pareto front (higher = better)
 - **IGD+**: Inverted Generational Distance Plus (lower = better, Pareto-compliant)
 - **Spacing**: Uniformity of solutions along front (lower = better)

@@ -5,7 +5,8 @@ successfully eliminates *statistically significant* spatial clusters.
 
 For a subset of seeds, re-runs each optimisation algorithm, captures the
 final map state, and applies conditional-permutation LISA to count
-significant H-H and L-L clusters at p < 0.05.
+significant H-H and L-L clusters. Uses 9,999 permutations per location (default)
+and reports both per-location (p < alpha) and FDR-corrected (Benjamini–Hochberg, q < 0.05) counts.
 
 Supports multiprocessing via --workers (each seed is independent).
 
@@ -43,10 +44,12 @@ def parse_args() -> argparse.Namespace:
                    help="Comma-separated algorithms (hc, sa, nsga2, ts)")
     p.add_argument("--workers", type=int, default=1,
                    help="Parallel workers (default: 1 = sequential)")
-    p.add_argument("--n-perms", type=int, default=999,
-                   help="Permutations per location for significance test (default: 999)")
+    p.add_argument("--n-perms", type=int, default=9999,
+                   help="Permutations per location for significance test (default: 9999)")
     p.add_argument("--alpha", type=float, default=0.05,
-                   help="Significance threshold (default: 0.05)")
+                   help="Per-location significance threshold (default: 0.05)")
+    p.add_argument("--fdr-q", type=float, default=0.05,
+                   help="FDR (Benjamini–Hochberg) q level (default: 0.05)")
     p.add_argument("--output-dir", type=str, default="output",
                    help="Root output directory")
     p.add_argument("--sa-rate", type=float, default=0.80)
@@ -66,8 +69,9 @@ def parse_args() -> argparse.Namespace:
 def conditional_permutation_lisa(
     z: np.ndarray,
     W,
-    n_perms: int = 999,
+    n_perms: int = 9999,
     alpha: float = 0.05,
+    fdr_q: float = 0.05,
     rng: np.random.Generator = None,
 ) -> Dict:
     """
@@ -75,9 +79,11 @@ def conditional_permutation_lisa(
 
     For each location i, holds z[i] fixed, randomly permutes all other
     values, and recomputes local_I[i] under each permutation to build
-    a reference distribution.
+    a reference distribution. Reports both per-location significance
+    (p < alpha) and FDR-corrected significance (Benjamini–Hochberg, q = fdr_q).
 
-    Returns dict with counts of significant H-H, L-L, H-L, L-H clusters.
+    Returns dict with counts of significant H-H, L-L, H-L, L-H clusters
+    (per-location and FDR-corrected).
     """
     if rng is None:
         rng = np.random.default_rng(42)
@@ -128,12 +134,26 @@ def conditional_permutation_lisa(
     n_sig_HL = int(np.sum(significant & (z_dev > 0) & (Wz < 0)))
     n_sig_LH = int(np.sum(significant & (z_dev < 0) & (Wz > 0)))
 
+    # FDR (Benjamini–Hochberg) correction for multiple testing
+    from scipy.stats import false_discovery_control
+    adjusted = false_discovery_control(p_values, method="bh")
+    significant_fdr = adjusted < fdr_q
+    n_sig_HH_fdr = int(np.sum(significant_fdr & (z_dev > 0) & (Wz > 0)))
+    n_sig_LL_fdr = int(np.sum(significant_fdr & (z_dev < 0) & (Wz < 0)))
+    n_sig_HL_fdr = int(np.sum(significant_fdr & (z_dev > 0) & (Wz < 0)))
+    n_sig_LH_fdr = int(np.sum(significant_fdr & (z_dev < 0) & (Wz > 0)))
+
     return {
         "n_sig_HH": n_sig_HH,
         "n_sig_LL": n_sig_LL,
         "n_sig_HL": n_sig_HL,
         "n_sig_LH": n_sig_LH,
         "total_significant": int(significant.sum()),
+        "n_sig_HH_fdr": n_sig_HH_fdr,
+        "n_sig_LL_fdr": n_sig_LL_fdr,
+        "n_sig_HL_fdr": n_sig_HL_fdr,
+        "n_sig_LH_fdr": n_sig_LH_fdr,
+        "total_significant_fdr": int(significant_fdr.sum()),
         "n_positions": n,
         "lisa_proxy": float(observed_local_I[observed_local_I > 0].sum()),
     }
@@ -145,8 +165,8 @@ def conditional_permutation_lisa(
 
 CSV_FIELDS = [
     "seed", "algorithm", "n_sig_HH", "n_sig_LL", "n_sig_HL", "n_sig_LH",
-    "total_significant", "n_positions", "lisa_proxy", "composite_score",
-    "elapsed_sec",
+    "total_significant", "n_sig_HH_fdr", "n_sig_LL_fdr", "total_significant_fdr",
+    "n_positions", "lisa_proxy", "composite_score", "elapsed_sec",
 ]
 
 _evaluator = None
@@ -170,7 +190,7 @@ def _validate_seed(job):
     (seed, algos_list, sa_iter, hc_iter, ts_iter,
      sa_rate, sa_min_temp,
      nsga_gen, nsga_pop, nsga_blob, nsga_mut, nsga_warm,
-     players, n_perms, alpha) = job
+     players, n_perms, alpha, fdr_q) = job
 
     algos = set(algos_list)
     evaluator = _evaluator
@@ -244,7 +264,7 @@ def _validate_seed(job):
             z = fs.spatial_values()
             W = topo.spatial_W
 
-            result = conditional_permutation_lisa(z, W, n_perms, alpha, rng)
+            result = conditional_permutation_lisa(z, W, n_perms, alpha, fdr_q, rng)
             elapsed = time.time() - t0
 
             row = {
@@ -258,6 +278,7 @@ def _validate_seed(job):
 
             print(f"  seed={seed:4d}  {algo:<6s}  "
                   f"sig={result['total_significant']}/{result['n_positions']}  "
+                  f"FDR_sig={result['total_significant_fdr']}  "
                   f"HH={result['n_sig_HH']} LL={result['n_sig_LL']}  "
                   f"proxy={result['lisa_proxy']:.3f}  "
                   f"t={elapsed:.1f}s")
@@ -299,7 +320,7 @@ def main() -> int:
         (seed, sorted(algos), args.sa_iter, args.hc_iter, ts_iter,
          args.sa_rate, args.sa_min_temp,
          args.nsga_gen, args.nsga_pop, args.nsga_blob, args.nsga_mut, args.nsga_warm,
-         args.players, args.n_perms, args.alpha)
+         args.players, args.n_perms, args.alpha, args.fdr_q)
         for seed in range(args.base_seed, args.base_seed + args.seeds)
     ]
 
@@ -336,7 +357,7 @@ def main() -> int:
         import pandas as pd
         from scipy import stats as scipy_stats
         df = pd.read_csv(csv_path)
-        print("\n── Summary ──")
+        print("\n── Summary (per-location p < alpha) ──")
         summary = df.groupby("algorithm").agg(
             mean_significant=("total_significant", "mean"),
             mean_HH=("n_sig_HH", "mean"),
@@ -344,6 +365,14 @@ def main() -> int:
             mean_proxy=("lisa_proxy", "mean"),
         ).round(3)
         print(summary)
+        if "total_significant_fdr" in df.columns:
+            print("\n── Summary (FDR-corrected, q < 0.05) ──")
+            summary_fdr = df.groupby("algorithm").agg(
+                mean_sig_fdr=("total_significant_fdr", "mean"),
+                mean_HH_fdr=("n_sig_HH_fdr", "mean"),
+                mean_LL_fdr=("n_sig_LL_fdr", "mean"),
+            ).round(3)
+            print(summary_fdr)
 
         # ── Proxy validation: correlation between continuous proxy and cluster count
         proxy_vals = df["lisa_proxy"].values
