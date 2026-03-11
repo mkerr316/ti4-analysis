@@ -342,9 +342,9 @@ class Evaluator:
     DISTANCE_MOD_PLANET_WORMHOLE: float = 0.0
     DISTANCE_MOD_EMPTY: float = 0.0
     DISTANCE_MOD_EMPTY_WORMHOLE: float = 0.0
-    DISTANCE_MOD_ASTEROID_FIELD: float = 1.0
+    DISTANCE_MOD_ASTEROID_FIELD: float = False  # False = impassable (Round 0); see docs/limitations/anomalies.md
     DISTANCE_MOD_GRAVITY_RIFT: float = 0.0
-    DISTANCE_MOD_NEBULA: float = 1.0
+    DISTANCE_MOD_NEBULA: float = 0.0  # 0 = logistically transparent for Move-1; see docs/limitations/anomalies.md
     DISTANCE_MOD_SUPERNOVA: float = False  # Blocks path
     DISTANCE_MOD_ENTROPIC_SCAR: float = 0.0
     DISTANCE_MOD_ADJACENT_TO_OPPONENT: float = 0.0

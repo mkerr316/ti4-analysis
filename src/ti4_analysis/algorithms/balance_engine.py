@@ -244,6 +244,16 @@ class TI4Map:
             if dist_mod is None:
                 return None
 
+            # Gravity Rift: use Expected Effort modifier M = 0.3*d_rift - 0.4
+            # (d_rift = hops from start to this system = i+1). See docs/limitations/anomalies.md.
+            if space.system.anomalies and Anomaly.GRAVITY_RIFT in space.system.anomalies:
+                static_rift = evaluator.DISTANCE_MOD_GRAVITY_RIFT
+                if static_rift is not False and static_rift is not None:
+                    static_rift = float(static_rift)
+                else:
+                    static_rift = 0.0
+                dist_mod = dist_mod - static_rift + (0.3 * (i + 1) - 0.4)
+
             modded_dist += dist_mod
 
         return modded_dist

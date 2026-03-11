@@ -123,18 +123,18 @@ The default `DISTANCE_MULTIPLIER` table (community-calibrated by the TI4 "Joebre
 
 The "shelf" at weight 6 for $d_m \in [0, 2]$ is the defining feature: it captures the game-mechanical reality that nearby systems are equally accessible within a single round's movement, while systems behind anomaly barriers are progressively harder to exploit.
 
-Terrain costs per hop under the Joebrew evaluator:
+Terrain costs per hop under the Joebrew evaluator (Round 0, faction-agnostic baseline; see [Anomaly methodology](docs/limitations/anomalies.md)):
 
 | Terrain | Cost per hop |
 | ------- | ------------ |
 | Blue / planet system | 0.0 |
 | Empty space | 0.0 |
-| Asteroid field | 1.0 |
-| Nebula | 1.0 |
-| Gravity rift | 0.0 |
+| Asteroid field | path blocked |
+| Nebula | 0.0 |
+| Gravity rift | $0.3\,d_{\text{rift}} - 0.4$ (expected effort; $d_{\text{rift}}$ = hops from home) |
 | Supernova | path blocked |
 
-With these defaults, most paths traverse only blue/planet and empty-space hexes, yielding $d_m = 0$ and uniform weight 6 for all reachable systems. Anomaly-traversing paths accumulate positive distance and receive reduced weight from the lookup table. This models the strategic reality that asteroid fields and nebulae degrade tile accessibility in TI4, without imposing an artificial continuous decay on the inherently discrete hex grid.
+Asteroid fields and supernovae are **impassable** (path severed). Nebulas add **no** distance cost for Move-1 units (logistically transparent in Round 0). Gravity rifts use a deterministic **Expected Effort** modifier derived from the 30% destruction / 70% movement-bonus rule, with value that depends on the rift’s distance from the player’s home (benefit when adjacent, penalty when farther). BFS pathfinding minimizes modified distance, so the optimizer automatically chooses between safe and rift paths. With these defaults, paths through only blue/planet and empty (or nebula) hexes yield $d_m = 0$ and uniform weight 6 for reachable systems; paths through gravity rifts accumulate the expected-effort term; paths through asteroid fields or supernovae are invalid.
 
 For Multi-Jain per-dimension JFI, the same weight matrix is applied to raw planet resources and raw planet influence separately (before any evaluator scalarization), producing vectors $\mathbf{r}$ and $\mathbf{i}$ for the bottleneck JFI computation.
 
@@ -294,6 +294,11 @@ The benchmark produces two complementary analysis tracks addressing different re
 
 > **Why the distinction matters.** Collapsing NSGA-II's Pareto front to a single scalar via the same 5:5:3 weight vector that SA and SGA explicitly optimize structurally favours scalar algorithms in the Track A comparison — they spend their entire evaluation budget hill-climbing on that exact objective, while NSGA-II distributes effort across the full trade-off surface. Track B isolates NSGA-II's true multi-objective performance without this confound.
 
+### Limitations and methodological notes
+
+- **Anomaly pathing.** Asteroid fields are **impassable** (Round 0, no Antimass Deflectors assumed). Nebulas add **no** distance penalty (Move-1 baseline). Gravity rifts use a distance-dependent **Expected Effort** modifier ($M = 0.3 d_{\text{rift}} - 0.4$). Rationale, inflection-point behavior, and Risk-Averse Baseline are documented in [docs/limitations/anomalies.md](docs/limitations/anomalies.md).
+- **Small-N spatial statistics.** With ~37 swappable tiles, asymptotic normality for Moran's I / LISA is not justified. Significance claims use **permutation-based** evaluation (e.g. `validate_lisa_proxy.py`); the continuous LSAP is an optimization heuristic only. See [docs/limitations/limitations.md](docs/limitations/limitations.md).
+
 ---
 
 ## Project Structure
@@ -331,6 +336,9 @@ ti4-analysis/
 │       └── viz/                     # Generated figures (PNG + SVG)
 ├── tests/                           # pytest suite (property-based + unit)
 ├── docs/
+│   ├── limitations/                 # Methodological notes (anomalies, small-N)
+│   │   ├── anomalies.md             # Asteroid / nebula / gravity rift pathing
+│   │   └── limitations.md           # Small-N spatial statistics
 │   ├── lit_review/                  # Literature synthesis (.md files)
 │   ├── tabu_search_justification.md # TS inclusion rationale (methodological control)
 │   └── bayesian_optimization_exclusion.md  # BO exclusion argument
