@@ -96,9 +96,9 @@ def generate_random_map(
         red_count=red_count
     )
 
-    # Split into red / blue based on system definition
-    red_tiles = [t for t in swappable_tiles if t.is_red()]
-    blue_tiles = [t for t in swappable_tiles if not t.is_red()]
+    # Split into red / blue based on the database definition
+    red_tiles = [t for t in swappable_tiles if str(t.id) in tile_db.red_tiles]
+    blue_tiles = [t for t in swappable_tiles if str(t.id) in tile_db.blue_tiles]
 
     if len(red_tiles) != red_count or len(blue_tiles) != blue_count:
         raise ValueError(
