@@ -252,20 +252,6 @@ class MapTopology:
         spatial_W = scipy.sparse.diags(1.0 / row_sums_kept) @ W_kept
         spatial_W = scipy.sparse.csr_matrix(spatial_W, dtype=np.float32)
 
-        # Tight LSAP normalizer: n * lambda_max(W).
-        # For row-stochastic W, Perron-Frobenius guarantees lambda_max <= 1, so
-        # sum_i local_I_i = n * I_global <= n * lambda_max <= n.
-        # Using the finalized spatial_W ensures consistency if normalization changes.
-        try:
-            import scipy.sparse.linalg as _spla
-            _lam = float(_spla.eigsh(
-                spatial_W.astype(np.float64), k=1, which='LM',
-                return_eigenvectors=False, tol=1e-4, maxiter=300,
-            )[0])
-        except Exception:
-            _lam = 1.0   # Perron-Frobenius fallback
-        lsap_divisor = float(N_sys) * max(_lam, 1.0)
-
         # Swappable-only adjacency (S x S) for Moran's I / LSAP over decision variables.
         # Same navigability rules; then purge zero-degree so variance = lag domain.
         S = len(swappable_indices)
@@ -295,6 +281,21 @@ class MapTopology:
         row_sums_sw_kept = np.array(W_sw_kept.sum(axis=1)).flatten()
         spatial_W_swappable = scipy.sparse.diags(1.0 / row_sums_sw_kept) @ W_sw_kept
         spatial_W_swappable = scipy.sparse.csr_matrix(spatial_W_swappable, dtype=np.float32)
+
+        # Tight LSAP normalizer: n_sw * lambda_max(spatial_W_swappable).
+        # Must use the swappable-only W because lisa_penalty_swappable() operates on
+        # that matrix; n_spatial in MultiObjectiveScore = len(keep_sw_inds).
+        # Perron-Frobenius guarantees lambda_max <= 1 for row-stochastic W.
+        n_sw_conn = len(keep_sw_inds)
+        try:
+            import scipy.sparse.linalg as _spla
+            _lam = float(_spla.eigsh(
+                spatial_W_swappable.astype(np.float64), k=1, which='LM',
+                return_eigenvectors=False, tol=1e-4, maxiter=300,
+            )[0])
+        except Exception:
+            _lam = 1.0   # Perron-Frobenius fallback
+        lsap_divisor = float(n_sw_conn) * max(_lam, 1.0)
 
         return cls(
             home_indices=home_indices,

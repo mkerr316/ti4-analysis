@@ -134,19 +134,19 @@ class TestLisaPenalty:
         MultiObjectiveScore with positive lisa_penalty produces a higher composite
         score than one with zero penalty (all else equal).
 
-        With n_spatial=37, the LISA divisor is n*(n-1)=1332.  Setting
-        lisa_penalty to that maximum maps the normalized term to exactly 1.0,
-        so the LISA contribution equals weight_lisa = 3/13 ≈ 0.231.
+        With lsap_divisor=n (tight Perron-Frobenius bound), setting lisa_penalty=n
+        maps the normalized term to exactly 1.0, so the LISA contribution equals
+        weight_lisa = 3/13.  Both scores must explicitly pass lsap_divisor=float(n)
+        so the test is independent of topology-specific eigenvalue computation.
         """
         n = 37
         base = MultiObjectiveScore(balance_gap=2.0, morans_i=0.0, jains_index=0.9,
-                                   lisa_penalty=0.0, n_spatial=n)
-        max_lisa = n * (n - 1)  # theoretical upper bound
+                                   lisa_penalty=0.0, n_spatial=n, lsap_divisor=float(n))
         penalized = MultiObjectiveScore(balance_gap=2.0, morans_i=0.0, jains_index=0.9,
-                                        lisa_penalty=float(max_lisa), n_spatial=n)
+                                        lisa_penalty=float(n), n_spatial=n, lsap_divisor=float(n))
 
         assert penalized.composite_score() > base.composite_score()
-        expected_delta = 3.0 / 13.0  # weight_lisa × 1.0
+        expected_delta = 3.0 / 13.0  # weight_lisa × (n / n) = weight_lisa × 1.0
         assert penalized.composite_score() == pytest.approx(
             base.composite_score() + expected_delta, rel=1e-6
         )
