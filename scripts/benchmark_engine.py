@@ -221,21 +221,65 @@ def _run_seed(job):
 
     import numpy as np
 
-    def _hv3d(scores, ref, rng, n_samples=5000):
-        """Monte Carlo HV for 3 objectives: (1-jfi, |mi|, lisa)."""
+    def _hv2d(pts2d, ref2):
+        """Exact 2D hypervolume. pts2d shape (N,2), minimisation."""
+        if len(pts2d) == 0:
+            return 0.0
+        # Keep non-dominated points (minimisation)
+        nondom = np.ones(len(pts2d), dtype=bool)
+        for i in range(len(pts2d)):
+            for j in range(len(pts2d)):
+                if i != j and np.all(pts2d[j] <= pts2d[i]) and np.any(pts2d[j] < pts2d[i]):
+                    nondom[i] = False
+                    break
+        pts2d = pts2d[nondom]
+        if len(pts2d) == 0:
+            return 0.0
+        pts2d = pts2d[pts2d[:, 0].argsort()]
+        hv = 0.0
+        prev_y = ref2[1]
+        for i in range(len(pts2d) - 1, -1, -1):
+            if pts2d[i][1] < prev_y:
+                hv += (ref2[0] - pts2d[i][0]) * (prev_y - pts2d[i][1])
+                prev_y = pts2d[i][1]
+        return hv
+
+    def _hv3d(scores, ref, rng=None, n_samples=None):
+        """
+        Exact 3D Hypervolume via sweep-line (WFG/HSO-style).
+        Replaces the previous Monte Carlo approximation.
+        rng and n_samples are retained as unused kwargs for call-site compatibility.
+        """
         if not scores:
             return 0.0
         pts = np.array([
-            (1.0 - float(s.jains_index), abs(float(s.morans_i)), float(s.lisa_penalty))
+            (1.0 - float(s.jains_index),
+             max(0.0, float(s.morans_i) + 1.0 / max(1, s.n_spatial - 1)),
+             float(s.lisa_penalty) / max(1, s.n_spatial * (s.n_spatial - 1)))
             for s in scores
         ])
-        ideal = pts.min(axis=0)
-        box = float(np.prod(ref - ideal))
-        if box <= 0:
+        # Clip to reference point — points outside ref contribute nothing
+        pts = pts[np.all(pts < ref, axis=1)]
+        if len(pts) == 0:
             return 0.0
-        s = rng.uniform(ideal, ref, size=(n_samples, 3))
-        dominated = sum(1 for i in range(n_samples) if np.any(np.all(pts <= s[i], axis=1)))
-        return box * dominated / n_samples
+
+        # Sort by third objective ascending
+        pts = pts[pts[:, 2].argsort()]
+
+        hv = 0.0
+        prev_z = ref[2]
+        # Sweep from largest z to smallest, maintaining 2D front at each slice
+        for i in range(len(pts) - 1, -1, -1):
+            slice_depth = prev_z - pts[i][2]
+            if slice_depth <= 0:
+                prev_z = pts[i][2]
+                continue
+            # Compute 2D hypervolume of current front projected onto xy plane
+            front_2d = pts[: i + 1]  # all points with z <= pts[i][2] already processed
+            hv2 = _hv2d(front_2d[:, :2], ref[:2])
+            hv += hv2 * slice_depth
+            prev_z = pts[i][2]
+        return hv
 
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.hc_optimizer import hc_optimize
@@ -374,13 +418,12 @@ def _run_seed(job):
 
         if "nsga2" in algos:
             ref_hv = np.array([1.2, 1.2, 1.2])
-            rng_hv = np.random.default_rng(42)
             for chain_id in range(n_chains):
                 run_seed = seed * 1000 + chain_id
                 nsga_traj = []
 
                 def _nsga_cb(gen, rank0_scores):
-                    hv = _hv3d(rank0_scores, ref_hv, rng_hv)
+                    hv = _hv3d(rank0_scores, ref_hv)
                     nsga_traj.append((gen * nsga_pop, hv))
 
                 nsga_map = initial_map.copy()
