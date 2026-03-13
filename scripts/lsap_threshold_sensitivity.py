@@ -110,7 +110,7 @@ def run_sensitivity(args) -> List[dict]:
     for i in range(args.seeds):
         seed = args.base_seed + i
         try:
-            ti4_map = generate_random_map(n_players=args.players, random_seed=seed)
+            ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
             t0 = time.time()
             best_map, best_score = improve_balance_spatial(
                 ti4_map,

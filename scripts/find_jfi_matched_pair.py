@@ -73,7 +73,7 @@ def _run_sa_for_seed(seed, args, evaluator):
     from ti4_analysis.algorithms.map_generator import generate_random_map
     from ti4_analysis.algorithms.spatial_optimizer import improve_balance_spatial
 
-    ti4_map = generate_random_map(n_players=args.players, random_seed=seed)
+    ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
     best_score, _history, _etb = improve_balance_spatial(
         ti4_map,
         evaluator,
@@ -136,7 +136,7 @@ def render_pair(seed_a, seed_b, results_map, args, out_dir, evaluator):
 
     maps_and_scores = []
     for seed in (seed_a, seed_b):
-        ti4_map = generate_random_map(n_players=args.players, random_seed=seed)
+        ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
         best_score, _history, _etb = improve_balance_spatial(
             ti4_map,
             evaluator,

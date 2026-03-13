@@ -171,7 +171,7 @@ def main() -> None:
     for i in range(args.n_random):
         seed = args.base_seed + i
         try:
-            ti4_map = generate_random_map(n_players=args.players, random_seed=seed)
+            ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
             topology = MapTopology.from_ti4_map(ti4_map, evaluator)
             fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
             score = evaluate_map_multiobjective(ti4_map, evaluator, fast_state=fast_state)
@@ -192,7 +192,7 @@ def main() -> None:
     for i in range(args.n_sa):
         seed = args.base_seed + 10_000 + i   # distinct from Gen-0 seeds
         try:
-            ti4_map = generate_random_map(n_players=args.players, random_seed=seed)
+            ti4_map = generate_random_map(player_count=args.players, random_seed=seed)
             t0 = time.time()
             best_map, best_score = improve_balance_spatial(
                 ti4_map,
