@@ -78,7 +78,7 @@ def _extract_terms(score) -> dict:
     n = score.n_spatial
     hinge = max(0.0, score.morans_i + 1.0 / max(1, n - 1))
     jfi_gap = 1.0 - score.jains_index
-    lisa_norm = score.lisa_penalty / max(1.0, getattr(score, 'lsap_divisor', n * (n - 1)))
+    lisa_norm = score.lisa_penalty / max(1, n * (n - 1))
     return {
         "hinge_morans_i": hinge,
         "jfi_gap":        jfi_gap,

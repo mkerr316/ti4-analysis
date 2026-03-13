@@ -97,7 +97,6 @@ class MapTopology:
     spatial_W: object = field(compare=False)           # scipy.sparse.csr_matrix (N_sys, N_sys)
     spatial_W_swappable: object = field(compare=False)  # scipy.sparse.csr_matrix (S_conn, S_conn)
     swappable_connected_s_pos: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))  # (S_conn,)
-    lsap_divisor: float = 1.0  # n * lambda_max(spatial_W); tight LSAP normalizer, computed in from_ti4_map
 
     @classmethod
     def from_ti4_map(cls, ti4_map: 'TI4Map', evaluator: Evaluator) -> 'MapTopology':
@@ -282,21 +281,6 @@ class MapTopology:
         spatial_W_swappable = scipy.sparse.diags(1.0 / row_sums_sw_kept) @ W_sw_kept
         spatial_W_swappable = scipy.sparse.csr_matrix(spatial_W_swappable, dtype=np.float32)
 
-        # Tight LSAP normalizer: n_sw * lambda_max(spatial_W_swappable).
-        # Must use the swappable-only W because lisa_penalty_swappable() operates on
-        # that matrix; n_spatial in MultiObjectiveScore = len(keep_sw_inds).
-        # Perron-Frobenius guarantees lambda_max <= 1 for row-stochastic W.
-        n_sw_conn = len(keep_sw_inds)
-        try:
-            import scipy.sparse.linalg as _spla
-            _lam = float(_spla.eigsh(
-                spatial_W_swappable.astype(np.float64), k=1, which='LM',
-                return_eigenvectors=False, tol=1e-4, maxiter=300,
-            )[0])
-        except Exception:
-            _lam = 1.0   # Perron-Frobenius fallback
-        lsap_divisor = float(n_sw_conn) * max(_lam, 1.0)
-
         return cls(
             home_indices=home_indices,
             swappable_indices=swappable_indices,
@@ -310,5 +294,4 @@ class MapTopology:
             spatial_W=spatial_W,
             spatial_W_swappable=spatial_W_swappable,
             swappable_connected_s_pos=keep_sw_inds,
-            lsap_divisor=lsap_divisor,
         )
