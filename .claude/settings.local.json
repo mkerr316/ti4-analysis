@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/mpk15956/Documents/ti4-analysis-main/scripts/*pareto* /c/Users/mpk15956/Documents/ti4-analysis-main/scripts/*quality* /c/Users/mpk15956/Documents/ti4-analysis-main/scripts/*hv*)",
+      "Bash(wc -l /c/Users/mpk15956/Documents/ti4-analysis-main/src/ti4_analysis/algorithms/*.py /c/Users/mpk15956/Documents/ti4-analysis-main/scripts/*.py)",
+      "Bash(find /c/Users/mpk15956/Documents/ti4-analysis-main/notebooks -type f -name *.ipynb)"
+    ]
+  }
+}

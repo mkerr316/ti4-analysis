@@ -81,7 +81,7 @@ This pattern is consistent with the computational structure of each algorithm. A
 
 ## Research Questions
 
-**RQ1:** Does the choice of optimization algorithm significantly affect spatial equity metrics beyond numeric balance?
+**RQ1:** Does the choice of optimization algorithm significantly affect spatial dispersion metrics beyond numeric balance?
 
 *Yes. Balance gap is nearly indistinguishable across algorithms, but LISA penalty separates SA from HC and NSGA-II by a factor of approximately 2× in median value (Figure 2, center panel).*
 

@@ -67,10 +67,12 @@ def serialize_map(ti4_map, score) -> Dict:
     return {
         "placements": placements,
         "score": {
-            "balance_gap":  round(float(score.balance_gap),  4),
-            "morans_i":     round(float(score.morans_i),     4),
-            "jains_index":  round(float(score.jains_index),  4),
-            "composite":    round(float(score.composite_score()), 4),
+            "balance_gap":   round(float(score.balance_gap),       4),
+            "morans_i":      round(float(score.morans_i),          4),
+            "jains_index":   round(float(score.jains_index),       4),
+            "jfi_resources": round(float(score.jfi_resources),     4),
+            "jfi_influence": round(float(score.jfi_influence),     4),
+            "composite":     round(float(score.composite_score()), 4),
         },
     }
 
@@ -81,8 +83,8 @@ def serialize_map(ti4_map, score) -> Dict:
 
 CSV_FIELDS = [
     "seed", "solution_rank",
-    "balance_gap", "morans_i", "jains_index", "composite_score",
-    "elapsed_sec",
+    "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
+    "composite_score", "elapsed_sec",
 ]
 
 
@@ -93,6 +95,8 @@ def make_row(seed: int, rank: int, score, elapsed: float) -> Dict:
         "balance_gap":    round(float(score.balance_gap),        4),
         "morans_i":       round(float(score.morans_i),           4),
         "jains_index":    round(float(score.jains_index),        4),
+        "jfi_resources":  round(float(score.jfi_resources),      4),
+        "jfi_influence":  round(float(score.jfi_influence),      4),
         "composite_score":round(float(score.composite_score()),  4),
         "elapsed_sec":    round(elapsed, 2),
     }

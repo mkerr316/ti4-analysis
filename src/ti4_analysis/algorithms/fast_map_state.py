@@ -231,6 +231,48 @@ class FastMapState:
         local_I = z_dev * np.asarray(Wz).ravel() / m2
         return float(local_I[local_I > 0].sum())
 
+    def lisa_penalty_thresholded(self, tau: float = 0.05) -> float:
+        """
+        Variance-thresholded LSAP: Σ max(0, Iᵢ − τ).
+
+        Filters near-zero positive local Moran values that may reflect
+        sampling noise under spatial randomness rather than genuine clustering.
+
+        Mathematical grounding of τ = 0.05:
+            The analytical null expectation is E[Iᵢ] = −1/(n−1).
+            For n = 37 swappable tiles: E[Iᵢ] ≈ −0.028.
+            τ = 0.05 therefore exceeds |E[Iᵢ]| ≈ 0.028, placing the noise
+            floor above the analytical null magnitude.
+
+        IMPORTANT — τ is an empirical noise-floor heuristic, NOT the formal
+        statistical expectation under H₀.  Var[Iᵢ] under H₀ depends on the
+        specific weight-matrix structure for this hex topology and cannot be
+        derived analytically without permutation testing.  The magnitude
+        argument (τ > |E[Iᵢ]|) is sufficient justification; do not describe
+        τ as "1.8σ" without first computing Var[Iᵢ] from permutation tests.
+
+        Use as a sensitivity variant alongside the baseline lisa_penalty():
+        run lsap_threshold_sensitivity.py and apply the pre-registered
+        decision rule (τ_kendall > 0.90 → baseline defended).
+
+        Args:
+            tau: Noise-floor heuristic threshold.  Default 0.05.
+
+        Returns:
+            Sum of max(0, Iᵢ − tau) over all positions.
+        """
+        z = self.spatial_values()
+        n = len(z)
+        if n < 3:
+            return 0.0
+        z_dev = z - z.mean()
+        m2 = float(z_dev @ z_dev) / n
+        if m2 == 0.0:
+            return 0.0
+        Wz = self.topology.spatial_W @ z_dev
+        local_I = z_dev * np.asarray(Wz).ravel() / m2
+        return float(np.maximum(0.0, local_I - tau).sum())
+
     def morans_i_swappable(self) -> float:
         """
         Moran's I over swappable (decision) variables only.

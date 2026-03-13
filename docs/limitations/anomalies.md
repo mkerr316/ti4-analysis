@@ -1,7 +1,7 @@
 # Methodological Note: Anomaly Pathing and Asteroid Field Impassability
 
 ## The Constraint
-In evaluating the spatial fairness of a *Twilight Imperium IV* (TI4) map, the optimizer calculates the accessibility of planets based on their topological distance from a player's starting Home System. Anomalies alter these routing costs. 
+In evaluating the spatial balance of a *Twilight Imperium IV* (TI4) map, the optimizer calculates the accessibility of planets based on their topological distance from a player's starting Home System. Anomalies alter these routing costs.
 
 In this model's configuration (`DISTANCE_MOD_ASTEROID_FIELD = False`), Asteroid Fields are strictly defined as impassable barriers, completely severing the topological path between two hexes in the same manner as a Supernova.
 
@@ -55,7 +55,7 @@ This choice ensures that the spatial optimizer does not unfairly penalize slices
 In this model, Nebulas are assigned a distance modifier of `0.0` (`DISTANCE_MOD_NEBULA = 0.0`). This contrasts with the treatment of Asteroid Fields, which are modeled as strictly impassable (`False`) to reflect a "Hard Block" in a no-technology state.
 
 ## The "Capture-Capable Unit" Constraint
-The optimizer evaluates map fairness based on the accessibility of economic resources (resources, influence) and technology skips. In *Twilight Imperium IV*, capturing these assets requires units with **Capacity** to transport ground forces.
+The optimizer evaluates the spatial distribution of map resources based on the accessibility of economic resources (resources, influence) and technology skips. In *Twilight Imperium IV*, capturing these assets requires units with **Capacity** to transport ground forces.
 
 ### Base Unit Stats (Round 0):
 * **Carrier**: Move 1, Capacity 4
@@ -72,7 +72,7 @@ According to the official rules, Nebulas impose two primary movement restriction
 For a Move-1 unit, these restrictions are functionally transparent. A Carrier takes one tactical action to enter an adjacent nebula and one tactical action to exit. This is identical to the logistical effort required to move through empty space. Therefore, adding a distance penalty (+1.0) would incorrectly over-penalize the slice's early-game value.
 
 ## Conclusion
-By setting the modifier to `0.0`, the model remains strictly rule-adherent to the Round 0 state. It avoids making heuristic assumptions about mid-game technology (e.g., Move-2 upgrades) and focuses purely on the geographic "starting fairness" of the map as it exists at the beginning of the game.
+By setting the modifier to `0.0`, the model remains strictly rule-adherent to the Round 0 state. It avoids making heuristic assumptions about mid-game technology (e.g., Move-2 upgrades) and focuses purely on the initial geographic resource distribution of the map as it exists at the beginning of the game.
 
 # Methodological Note: Gravity Rift Risk-Reward Modeling
 

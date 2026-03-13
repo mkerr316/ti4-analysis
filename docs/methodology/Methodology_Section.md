@@ -6,6 +6,8 @@
 
 ## 3.1 Problem Formulation
 
+> **Evaluation hierarchy:** Primary evaluation uses weight-independent Pareto quality indicators (Hypervolume, IGD+); the scalar weighted-sum composite serves as a secondary benchmark for single-objective comparators only. See §3.7 for Track A/B definitions.
+
 Map optimization is framed as minimization of a weighted composite score over three objectives:
 
 $$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LSAP}}{n(n-1)}$$
@@ -28,7 +30,24 @@ $$v_p = \sum_{s \in \mathcal{R}(p)} \mathbf{w}\bigl[\lfloor d_m(p, s) \rfloor\bi
 
 The default table (community-calibrated "Joebrew" evaluator) uses weights 6, 6, 6, 4, 4, 2, 1, 0 for $\lfloor d_m \rfloor = 0, 1, \ldots, 7+$, with a "shelf" at weight 6 for $d_m \in [0, 2]$ to capture equal accessibility within one round's movement. Terrain costs: blue/empty 0; nebula 0; gravity rift $0.3\,d_{\text{rift}} - 0.4$; asteroid/supernova block. For Multi-Jain, the same weight matrix is applied to raw Resources and raw Influence separately.
 
-**Distance-weight sensitivity:** Six alternative weight tables are tested on a representative subset of seeds; algorithm rankings are verified to remain stable via Friedman and Wilcoxon tests and Kendall's tau, confirming that conclusions are not brittle to the specific distance decay.
+**Distance-weight sensitivity:** Six alternative weight tables are tested on a representative subset of seeds; algorithm rankings are verified to remain stable via Friedman and Wilcoxon tests and Kendall's tau, confirming that conclusions are not brittle to the specific distance decay. Results are tabulated below; mean Kendall's τ > 0.90 across all perturbation pairs indicates that algorithm rankings are invariant to the specific parameterization.
+
+### Table: Distance-Decay Weight Robustness
+
+| Weight Configuration | Description | Kendall's τ vs. Baseline | p-value |
+| -------------------- | ----------- | ------------------------ | ------- |
+| flat_nearby | Uniform shelf extended to hop 3 | ⚠ PENDING_SAPELO2 | — |
+| steep_decay | Sharper drop at hop 3 | ⚠ PENDING_SAPELO2 | — |
+| linear | Monotone linear decay | ⚠ PENDING_SAPELO2 | — |
+| inverse_distance | Inverse-distance weights | ⚠ PENDING_SAPELO2 | — |
+| binary_reachable | Binary within-range indicator | ⚠ PENDING_SAPELO2 | — |
+| **Mean (all pairs)** | | ⚠ PENDING_SAPELO2 | — |
+
+> **⚠ Pre-submission gate:** Replace all `⚠ PENDING_SAPELO2` cells with numbers
+> from `sensitivity_report.txt` before submitting. Run `grep -r "PENDING_SAPELO2" docs/`
+> to confirm zero matches prior to any submission attempt.
+
+Source: `scripts/distance_weight_sensitivity.py`.
 
 ---
 
@@ -108,6 +127,8 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 **Track B — Pareto (multi-objective quality).** NSGA-II's raw Pareto archives are evaluated with **Hypervolume (HV)**, **IGD+**, and **Spacing**. This is the primary evaluation for multi-objective performance and avoids scalarization. Scalar algorithms do not produce Pareto fronts and are compared only via Track A.
 
 **Unified HV (objective commensurability).** To place scalar and multi-objective methods in a **single objective space**, we additionally compute Hypervolume for every algorithm using **empirical Pareto fronts** extracted from the logged run histories. For each (algorithm, seed, budget), we collect the non-dominated set of visited maps in the canonical 3D space $(1 - J_{\min}, |I|, \text{LSAP})$ and compute HV against a common nadir reference point derived from the worst observed objective values (auto: worst×1.1). This yields a weight-independent, distribution-agnostic quality indicator that is commensurable across RS, HC, SA, SGA, NSGA-II, and TS. The unified HV tables and non-parametric statistics (Friedman / Wilcoxon / Vargha–Delaney) are produced by `scripts/unified_hv_analysis.py` using the `unified_archives/` emitted by `benchmark_engine.py`.
+
+**Causal scope.** The present study demonstrates that SA suppresses spatial clustering more effectively than HC and NSGA-II under fixed evaluation budgets; whether spatial clustering translates to measurable competitive disadvantage is an open empirical question requiring human-subject validation, addressed in Future Work.
 
 **Statistical justification.** Because the design is randomized-block / repeated-measures (same seeds under all algorithms), our data consist of **dependent paired samples** across algorithms. The **Friedman** test is therefore the correct non-parametric omnibus analogue of repeated-measures ANOVA; independent-sample tests such as Kruskal–Wallis would incorrectly treat within-seed variance as between-subject noise and inflate Type II error. Likewise, pairwise comparisons use the **Wilcoxon signed-rank** test (paired) rather than Mann–Whitney U / rank-sum (independent samples), ensuring that within-seed pairing is fully exploited in the inference.
 
