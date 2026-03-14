@@ -77,6 +77,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--chains",     type=int, default=1,
                    help="Number of independent chains per (seed, algorithm, budget) for "
                         "R-hat convergence diagnostic (default: 1). Use 3+ for rigor.")
+    p.add_argument("--weight-grid-step", type=float, default=0.0,
+                   help="Simplex step size for SO algorithm weight grid (default: 0 = "
+                        "disabled, uses only canonical 5:5:3). With e.g. 0.2, runs each "
+                        "SO algorithm on 21 weight vectors, splitting the total budget "
+                        "equally (B/k evaluations per vector) to ensure parity with "
+                        "NSGA-II. The union of per-vector best solutions forms the "
+                        "Aggregated SO Frontier for HV comparison.")
     return p.parse_args()
 
 
@@ -85,7 +92,7 @@ def parse_args() -> argparse.Namespace:
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "seed", "algorithm", "budget", "chain_id",
+    "seed", "algorithm", "budget", "chain_id", "weight_vector",
     "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
     "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
     "evals_to_best",
@@ -101,12 +108,14 @@ def make_row(
     budget: int = 0,
     evals_to_best: int = -1,
     chain_id: int = 0,
+    weight_vector: str = "none",
 ) -> Dict:
     return {
         "seed":           seed,
         "algorithm":      algorithm,
         "budget":         budget,
         "chain_id":       chain_id,
+        "weight_vector":  weight_vector,
         "balance_gap":    round(float(score.balance_gap),        4),
         "morans_i":       round(float(score.morans_i),           4),
         "jains_index":    round(float(score.jains_index),        4),
@@ -121,9 +130,10 @@ def make_row(
 
 
 def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0,
-                   chain_id: int = 0) -> Dict:
+                   chain_id: int = 0, weight_vector: str = "none") -> Dict:
     return {
         "seed": seed, "algorithm": algorithm, "budget": budget, "chain_id": chain_id,
+        "weight_vector": weight_vector,
         "balance_gap": float("nan"), "morans_i": float("nan"),
         "jains_index": float("nan"), "jfi_resources": float("nan"),
         "jfi_influence": float("nan"), "lisa_penalty": float("nan"),

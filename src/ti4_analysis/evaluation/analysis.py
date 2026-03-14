@@ -168,8 +168,6 @@ def analyze_experiment_results(
         ("Moran's I (Clustering)", "naive_morans_i", "optimized_morans_i"),
         ("Jain's Index (Accessibility)", "naive_jains_index", "optimized_jains_index"),
         ("Gini Coefficient", "naive_gini_coefficient", "optimized_gini_coefficient"),
-        ("Number of Hotspots", "naive_num_hotspots", "optimized_num_hotspots"),
-        ("Number of Coldspots", "naive_num_coldspots", "optimized_num_coldspots"),
         ("Accessibility Variance", "naive_accessibility_variance", "optimized_accessibility_variance"),
     ]
 
@@ -254,7 +252,6 @@ def test_spatial_blindness(
         ("optimized_balance_gap", "optimized_morans_i", "Balance Gap", "Moran's I"),
         ("optimized_balance_gap", "optimized_jains_index", "Balance Gap", "Jain's Index"),
         ("optimized_balance_gap", "optimized_gini_coefficient", "Balance Gap", "Gini Coefficient"),
-        ("optimized_balance_gap", "optimized_num_hotspots", "Balance Gap", "Num Hotspots"),
         ("optimized_balance_gap", "optimized_accessibility_variance", "Balance Gap", "Accessibility Variance"),
     ]
 
@@ -301,7 +298,6 @@ def find_smoking_gun_cases(
         'naive_balance_gap', 'optimized_balance_gap',
         'naive_morans_i', 'optimized_morans_i',
         'optimized_jains_index', 'optimized_gini_coefficient',
-        'optimized_num_hotspots', 'optimized_num_coldspots'
     ]]
 
 
@@ -320,7 +316,6 @@ def compute_summary_statistics(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
         ('morans_i', ['naive_morans_i', 'optimized_morans_i']),
         ('jains_index', ['naive_jains_index', 'optimized_jains_index']),
         ('gini_coefficient', ['naive_gini_coefficient', 'optimized_gini_coefficient']),
-        ('num_hotspots', ['naive_num_hotspots', 'optimized_num_hotspots']),
         ('accessibility_variance', ['naive_accessibility_variance', 'optimized_accessibility_variance']),
     ]
 

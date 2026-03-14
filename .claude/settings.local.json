@@ -21,7 +21,8 @@
       "Bash(powershell.exe -NoProfile -Command \":*)",
       "Bash(powershell.exe -NoProfile:*)",
       "Bash(cmd.exe /c C:Temprun_preflight.bat)",
-      "Bash(powershell.exe -NonInteractive -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\mpk15956\\\\Documents\\\\ti4-analysis-main''; Start-Process -FilePath ''C:\\\\Users\\\\mpk15956\\\\AppData\\\\Local\\\\miniforge3\\\\envs\\\\geog-4020\\\\python.exe'' -ArgumentList ''scripts\\\\_preflight_lsap.py'' -RedirectStandardOutput ''C:\\\\Temp\\\\preflight_stdout.txt'' -RedirectStandardError ''C:\\\\Temp\\\\preflight_stderr.txt'' -Wait -NoNewWindow; Get-Content ''C:\\\\Temp\\\\preflight_stdout.txt''; Get-Content ''C:\\\\Temp\\\\preflight_stderr.txt''\")"
+      "Bash(powershell.exe -NonInteractive -NoProfile -Command \"Set-Location ''C:\\\\Users\\\\mpk15956\\\\Documents\\\\ti4-analysis-main''; Start-Process -FilePath ''C:\\\\Users\\\\mpk15956\\\\AppData\\\\Local\\\\miniforge3\\\\envs\\\\geog-4020\\\\python.exe'' -ArgumentList ''scripts\\\\_preflight_lsap.py'' -RedirectStandardOutput ''C:\\\\Temp\\\\preflight_stdout.txt'' -RedirectStandardError ''C:\\\\Temp\\\\preflight_stderr.txt'' -Wait -NoNewWindow; Get-Content ''C:\\\\Temp\\\\preflight_stdout.txt''; Get-Content ''C:\\\\Temp\\\\preflight_stderr.txt''\")",
+      "Bash(find c:Usersmpk15956Documentsti4-analysis-main -type f -name *limitation* -o -name *constraint*)"
     ]
   }
 }

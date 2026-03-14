@@ -212,13 +212,7 @@ where $\mathbf{r}$ and $\mathbf{i}$ are the per-player distance-weighted resourc
 
 Both per-dimension values ($J_R$, $J_I$) are recorded in the benchmark CSV for disaggregated analysis. JFI replaces balance gap (max − min range) as the axiomatic, scale-invariant measure of resource disparity (Jain et al., 1984). Note: JFI has been shown to correlate with human fairness ratings in one-to-many allocation games (Grappiolo et al., 2013), but the link between spatial autocorrelation (Moran's I) and player-perceived map fairness remains an open empirical question requiring future user studies.
 
-> **Relationship to DRF.** The bottleneck principle (fairness bounded by the most constrained dimension) is analogous to the intuition in multi-resource allocation (Ghodsi et al., 2011). We do not claim formal allocation-theoretic properties (e.g. strategy-proofness or envy-freeness), which apply to mechanisms with demands, not to fixed map topologies. Moran's I and LISA continue to operate on the combined Joebrew scalar (`max(R, I) + tech`), since spatial clustering concerns total tile value regardless of resource dimension.
-
-#### Getis-Ord Gi* (Hot Spot Analysis)
-
-$$G_i^* = \frac{\sum_j w_{ij} x_j - \bar{X} \sum_j w_{ij}}{S \sqrt{\frac{n \sum_j w_{ij}^2 - \left(\sum_j w_{ij}\right)^2}{n - 1}}}$$
-
-$|G_i^*| > 1.96$ indicates a statistically significant cluster at 95% confidence. Used for exploratory analysis; not included in the benchmark composite score.
+> **Relationship to DRF.** The bottleneck principle (fairness bounded by the most constrained dimension) is analogous to the intuition in multi-resource allocation (Ghodsi et al., 2011). We do not claim formal allocation-theoretic properties (e.g. strategy-proofness or envy-freeness), which apply to mechanisms with demands, not to fixed map topologies. Moran's I and LISA continue to operate on the combined Joebrew scalar (`max(R, I) + tech`), since spatial clustering concerns total tile value regardless of resource dimension. Getis-Ord $G_i^*$ is omitted from the methodology because at $N \approx 37$ its asymptotic z-score is unreliable and because LISA/LSAP are better suited to detecting spatial outliers; significance is assessed only via conditional permutation LISA.
 
 ---
 
@@ -341,7 +335,7 @@ ti4-analysis/
 │   │   ├── map_topology.py          # Static weight matrix (vectorized)
 │   │   └── fast_map_state.py        # NumPy map state for O(1) swaps
 │   ├── spatial_stats/
-│   │   └── spatial_metrics.py       # Moran's I, LISA, Jain's, Gi*
+│   │   └── spatial_metrics.py       # Moran's I, LISA, Jain's
 │   └── evaluation/
 │       └── batch_experiment.py      # Evaluator factory
 ├── scripts/
@@ -469,8 +463,6 @@ Anselin, L. (1995). Local indicators of spatial association — LISA. *Geographi
 Deb, K., Pratap, A., Agarwal, S., & Meyarivan, T. (2002). A fast and elitist multiobjective genetic algorithm: NSGA-II. *IEEE Transactions on Evolutionary Computation*, 6(2), 182–197.
 
 Glover, F. (1989). Tabu search — Part I. *ORSA Journal on Computing*, 1(3), 190–206.
-
-Getis, A., & Ord, J. K. (1992). The analysis of spatial association by use of distance statistics. *Geographical Analysis*, 24(3), 189–206.
 
 Ghodsi, A., Zaharia, M., Hindman, B., Konwinski, A., Shenker, S., & Stoica, I. (2011). Dominant resource fairness: Fair allocation of multiple resource types. *Proceedings of the 8th USENIX Symposium on Networked Systems Design and Implementation (NSDI)*, 24, 323–336.
 

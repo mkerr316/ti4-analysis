@@ -2,7 +2,7 @@
 
 ## The flaw
 
-Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic normality** for variance calculations and z-scores (e.g. the 1.96 threshold). A TI4 map has roughly **37 swappable system tiles**. At **N = 37**, asymptotic approximations are mathematically shaky. Top reviewers will reject papers that claim statistical significance purely from analytical variance on N=37 grids.
+Standard spatial statistics (e.g. Moran's I) rely on **asymptotic normality** for variance calculations and z-scores (e.g. the 1.96 threshold). A TI4 map has roughly **37 swappable system tiles**. At **N = 37**, asymptotic approximations are mathematically shaky. Top reviewers will reject papers that claim statistical significance purely from analytical variance on N=37 grids. We do not use Getis-Ord $G_i^*$; it has been removed from the codebase and methodology because at N≈37 its asymptotic z-score is unreliable and because LISA/LSAP are better suited to spatial-outlier detection (see README and Methodology §3.3).
 
 ## The fix (what we do)
 
@@ -22,8 +22,7 @@ Standard spatial statistics (Moran's I, Getis-Ord Gi*) rely on **asymptotic norm
    Permutation-based significance for global *I* is now implemented in `validate_lisa_proxy.py`. Do not use `spatial_metrics.morans_i()` analytical variance or a 1.96 threshold for significance claims at N=37.
 
 2. **Getis–Ord Gi\***  
-   The docstring in `spatial_metrics.py` states that |Gi*| > 1.96 implies significance; that threshold is asymptotic.  
-   - **Recommendation**: If Gi\* is used for inference, use a permutation-based null for Gi\* as well, or avoid significance claims. If it is only a continuous objective, do not attach a 1.96 significance interpretation.
+   Getis-Ord $G_i^*$ is not used in this project; it has been removed from the codebase and methodology. At N≈37 the asymptotic z-score is unreliable, and LISA/LSAP with conditional permutation testing are the only defensible methods for local spatial association. Do not reintroduce Gi\* for significance claims.
 
 3. **Multiple testing (LISA)**  
    With 37 local tests, α = 0.05 per test does not control family-wise error. Bonferroni (α/37) assumes independent tests and is paralyzingly conservative for spatially correlated hex grids, leading to Type II errors.  

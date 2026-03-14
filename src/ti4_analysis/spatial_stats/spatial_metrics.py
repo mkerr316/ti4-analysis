@@ -3,7 +3,6 @@ Spatial statistics for TI4 map analysis.
 
 Implements advanced spatial metrics proposed in the research documentation:
 - Moran's I (spatial autocorrelation)
-- Getis-Ord Gi* (hot spot analysis)
 - Gravity Model (distance-weighted accessibility)
 - Jain's Fairness Index
 - Resource clustering metrics
@@ -11,7 +10,6 @@ Implements advanced spatial metrics proposed in the research documentation:
 References:
     - docs/Twilight Imperium Map Balance Research.md
     - Anselin, L. (1995). Local indicators of spatial association—LISA
-    - Getis, A., & Ord, J. K. (1992). The analysis of spatial association
 """
 
 import numpy as np
@@ -228,75 +226,6 @@ def morans_i(
     return I, expected_I, variance_I
 
 
-def getis_ord_gi_star(
-    values: np.ndarray,
-    weights: SpatialWeightMatrix,
-    focal_index: int
-) -> float:
-    """
-    Calculate Getis-Ord Gi* statistic for hot spot analysis.
-
-    Gi* identifies spatial clusters of high or low values:
-    - Gi* > 0: Hot spot (high values cluster)
-    - Gi* < 0: Cold spot (low values cluster)
-    - |Gi*| > 1.96: Statistically significant at 95% confidence
-
-    Formula:
-        Gi* = [Σⱼ wᵢⱼxⱼ - X̄ Σⱼ wᵢⱼ] / [S√((n Σⱼ wᵢⱼ² - (Σⱼ wᵢⱼ)²) / (n-1))]
-
-    where:
-        wᵢⱼ = spatial weight (includes self-weight at i=j)
-        xⱼ = value at location j
-        X̄ = mean of all values
-        S = standard deviation
-        n = number of observations
-
-    Args:
-        values: Array of values at each location
-        weights: Spatial weight matrix
-        focal_index: Index of focal location to analyze
-
-    Returns:
-        Gi* z-score
-
-    References:
-        Getis, A., & Ord, J. K. (1992). The analysis of spatial association
-        by use of distance statistics. Geographical analysis, 24(3), 189-206.
-    """
-    W_matrix = weights.weights
-    n = len(values)
-
-    # Get weights for focal location (row i)
-    w_i = W_matrix[focal_index, :]
-
-    # Include self-weight (Gi* vs Gi)
-    w_i[focal_index] = 1.0
-
-    # Calculate components
-    X_bar = values.mean()
-    S = values.std()
-
-    sum_w_x = (w_i * values).sum()
-    sum_w = w_i.sum()
-    sum_w_sq = (w_i ** 2).sum()
-
-    # Calculate Gi*
-    numerator = sum_w_x - X_bar * sum_w
-
-    denominator_inner = (n * sum_w_sq - sum_w ** 2) / (n - 1)
-    if denominator_inner < 0:
-        return 0.0
-
-    denominator = S * np.sqrt(denominator_inner)
-
-    if denominator == 0:
-        return 0.0
-
-    Gi_star = numerator / denominator
-
-    return Gi_star
-
-
 def local_morans_i(
     values: np.ndarray,
     weights: SpatialWeightMatrix,
@@ -472,65 +401,6 @@ def resource_clustering_coefficient(
     return I
 
 
-def identify_hotspots(
-    ti4_map: TI4Map,
-    evaluator: Evaluator,
-    significance_level: float = 1.96
-) -> List[Tuple[HexCoord, float, str]]:
-    """
-    Identify resource hot spots and cold spots using Getis-Ord Gi*.
-
-    .. deprecated::
-        This function uses continuous 1/d^β distance decay (via
-        ``create_distance_weights(beta=1.0)``), which is inconsistent with the
-        discrete step-function topology used in the benchmark and Evaluator.
-        Use for exploratory analysis only; not part of the publication
-        methodology.
-
-    .. note:: Small-N caveat
-        The default z-score cutoff of 1.96 assumes asymptotic normality of
-        the Gi* statistic. A typical TI4 map has ~37 system tiles, which is
-        borderline for this approximation. Results from this function should
-        be treated as exploratory screening. For publication-quality
-        significance testing, use the conditional-permutation LISA
-        implementation in ``scripts/validate_lisa_proxy.py``.
-
-    Args:
-        ti4_map: TI4 map object
-        evaluator: Evaluator for system values
-        significance_level: Z-score threshold (default 1.96, ~95% under
-            normal approximation)
-
-    Returns:
-        List of (coord, Gi*, type) tuples where type is 'hotspot' or 'coldspot'
-    """
-    warnings.warn(
-        "identify_hotspots uses continuous distance decay (1/d^β); "
-        "for benchmark consistency use discrete step-function topology. "
-        "Exploratory analysis only.",
-        category=DeprecationWarning,
-        stacklevel=2,
-    )
-    spaces = [s for s in ti4_map.spaces if s.space_type == MapSpaceType.SYSTEM and s.system]
-
-    if len(spaces) < 3:
-        return []
-
-    values = np.array([s.system.evaluate(evaluator) for s in spaces])
-    weights = create_distance_weights(ti4_map, beta=1.0, max_distance=3)
-
-    hotspots = []
-
-    for i, space in enumerate(spaces):
-        Gi_star = getis_ord_gi_star(values, weights, i)
-
-        if abs(Gi_star) >= significance_level:
-            spot_type = 'hotspot' if Gi_star > 0 else 'coldspot'
-            hotspots.append((space.coord, Gi_star, spot_type))
-
-    return hotspots
-
-
 def calculate_spatial_inequality(
     home_accessibilities: List[float]
 ) -> Dict[str, float]:
@@ -608,18 +478,15 @@ def comprehensive_spatial_analysis(
     # Resource clustering
     clustering = resource_clustering_coefficient(ti4_map, evaluator, include_wormholes=True)
 
-    # Hot spots
-    hotspots = identify_hotspots(ti4_map, evaluator)
-
     # Inequality metrics
     inequality = calculate_spatial_inequality(accessibilities)
 
     return {
         'home_accessibilities': accessibilities,
         'resource_clustering_morans_i': clustering,
-        'hotspots': hotspots,
-        'num_hotspots': len([h for h in hotspots if h[2] == 'hotspot']),
-        'num_coldspots': len([h for h in hotspots if h[2] == 'coldspot']),
+        'hotspots': [],
+        'num_hotspots': 0,
+        'num_coldspots': 0,
         'inequality_metrics': inequality,
         'jains_fairness_index': inequality['jains_index'],
         'gini_coefficient': inequality['gini_coefficient']

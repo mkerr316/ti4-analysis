@@ -280,8 +280,8 @@ def _generate_smoking_gun_table(smoking_guns: pd.DataFrame) -> str:
     """Generate markdown table for smoking gun cases."""
     lines = []
 
-    lines.append("| Map ID | Seed | Optimized Gap | Optimized Moran's I | Jain's Index | Hotspots |")
-    lines.append("|--------|------|---------------|---------------------|--------------|----------|")
+    lines.append("| Map ID | Seed | Optimized Gap | Optimized Moran's I | Jain's Index |")
+    lines.append("|--------|------|---------------|---------------------|--------------|")
 
     for _, row in smoking_guns.iterrows():
         lines.append(
@@ -289,8 +289,7 @@ def _generate_smoking_gun_table(smoking_guns: pd.DataFrame) -> str:
             f"{int(row['random_seed']) if pd.notna(row['random_seed']) else 'N/A'} | "
             f"{row['optimized_balance_gap']:.3f} | "
             f"{row['optimized_morans_i']:.3f} | "
-            f"{row['optimized_jains_index']:.3f} | "
-            f"{int(row['optimized_num_hotspots'])} |"
+            f"{row['optimized_jains_index']:.3f} |"
         )
 
     return '\n'.join(lines)

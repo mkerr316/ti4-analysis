@@ -77,15 +77,11 @@ The LSAP is a variance-normalized local spatial penalty that proxies significanc
 
 $$I_i = \frac{(x_i - \bar{x}) \sum_j w_{ij}(x_j - \bar{x})}{m_2}, \quad m_2 = \frac{\sum(x_i - \bar{x})^2}{n}$$
 
-Positive $I_i$ identifies H-H and L-L clusters. LSAP sums only the positive local values. The composite normalizes by $n(n-1)$; this bound holds because $\mathbf{W}$ is row-standardized. The LSAP serves as a **continuous heuristic** in the optimization loop (permutation LISA would be prohibitively expensive); post-hoc validation via conditional-permutation LISA (e.g. 9,999 permutations per location, FDR Benjamini–Hochberg) confirms that minimising the proxy reduces statistically significant clusters.
+Positive $I_i$ identifies H-H and L-L clusters. LSAP sums only the positive local values. The composite normalizes by $n(n-1)$; this bound holds because $\mathbf{W}$ is row-standardized. The LSAP serves as a **continuous heuristic** in the optimization loop (permutation LISA would be prohibitively expensive); post-hoc validation via conditional-permutation LISA (e.g. 9,999 permutations per location, FDR Benjamini–Hochberg) confirms that minimising the proxy reduces statistically significant clusters. We omit Getis-Ord $G_i^*$ from the methodology because at $N \approx 37$ its asymptotic z-score is unreliable and because LISA/LSAP are better suited to detecting spatial outliers; significance is assessed only via conditional permutation LISA.
 
 ### Multi-Jain Fairness Index (Bottleneck JFI)
 
 For one dimension, $J(\mathbf{x}) = (\sum x_i)^2 / (n \sum x_i^2)$, range $[1/n, 1]$. We compute JFI on raw Resources and raw Influence separately and use $J_{\min} = \min(J_R, J_I)$ so that fairness is limited by the least-fair dimension (Jain et al., 1984; Ghodsi et al., 2011).
-
-### Getis-Ord Gi*
-
-Used for exploratory hot-spot analysis; not included in the benchmark composite score.
 
 ---
 

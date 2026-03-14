@@ -11,7 +11,7 @@ plotly>=5.17
 # Graph theory and network analysis
 networkx>=3.1
 
-# Spatial statistics (for Moran's I, Getis-Ord Gi*, etc.)
+# Spatial statistics (for Moran's I, LISA, Jain's, etc.)
 pysal>=23.7
 libpysal>=4.9
 esda>=2.5

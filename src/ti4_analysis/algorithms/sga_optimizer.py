@@ -54,12 +54,13 @@ def sga_optimize(
     warm_fraction: float = 0.10,
     random_seed: Optional[int] = None,
     verbose: bool = True,
+    weights: Optional[dict] = None,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
     Single-objective GA with BFS-blob OX1 crossover for TI4 map balance.
 
-    Optimises the weighted composite scalar (5:5:3) that SA also optimises,
-    using the same crossover and mutation operators as NSGA-II.
+    Optimises the weighted composite scalar (5:5:3 by default) that SA also
+    optimises, using the same crossover and mutation operators as NSGA-II.
 
     Args:
         ti4_map        : Starting map (defines tile pool and board topology)
@@ -71,6 +72,8 @@ def sga_optimize(
         warm_fraction  : Fraction of Gen 0 seeded with HC-optimised maps
         random_seed    : Reproducibility seed (None = non-deterministic)
         verbose        : Print per-generation progress
+        weights        : Objective weights dict (morans_i, jains_index,
+                         lisa_penalty). Defaults to 5:5:3 if None.
 
     Returns:
         Tuple of (best_score, history) where history is a list of
@@ -89,6 +92,12 @@ def sga_optimize(
     population = _seed_population(
         ti4_map, topology, evaluator, population_size, warm_fraction, rng, verbose
     )
+
+    # Patch weights onto seed-population scores so composite_score() and
+    # lex_key() use the caller-supplied weights from the first generation on.
+    if weights is not None:
+        for ind in population:
+            ind.score.weights = weights
 
     total_evals = population_size
     best_ind = min(population, key=lambda ind: ind.score.lex_key())
@@ -127,7 +136,7 @@ def sga_optimize(
                 pa.map, topology, child_systems, evaluator
             )
             child_score = evaluate_map_multiobjective(
-                child_map, evaluator, fast_state=child_state
+                child_map, evaluator, weights, fast_state=child_state
             )
             offspring.append(Individual(
                 map=child_map, fast_state=child_state, score=child_score

@@ -61,33 +61,62 @@ def hypervolume_2d(points: np.ndarray, ref: np.ndarray) -> float:
     return float(hv)
 
 
-def hypervolume_mc(points: np.ndarray, ref: np.ndarray,
-                   n_samples: int = 100_000, rng=None) -> float:
-    if rng is None:
-        rng = np.random.default_rng(42)
+def _hv2d_exact(pts2d: np.ndarray, ref2: np.ndarray) -> float:
+    """Exact 2D hypervolume via sweep-line with non-dominated filtering."""
+    if len(pts2d) == 0:
+        return 0.0
+    nondom = np.ones(len(pts2d), dtype=bool)
+    for i in range(len(pts2d)):
+        for j in range(len(pts2d)):
+            if i != j and np.all(pts2d[j] <= pts2d[i]) and np.any(pts2d[j] < pts2d[i]):
+                nondom[i] = False
+                break
+    pts2d = pts2d[nondom]
+    if len(pts2d) == 0:
+        return 0.0
+    pts2d = pts2d[pts2d[:, 0].argsort()]
+    hv = 0.0
+    prev_y = ref2[1]
+    for i in range(len(pts2d) - 1, -1, -1):
+        if pts2d[i][1] < prev_y:
+            hv += (ref2[0] - pts2d[i][0]) * (prev_y - pts2d[i][1])
+            prev_y = pts2d[i][1]
+    return hv
+
+
+def _hv3d_exact(points: np.ndarray, ref: np.ndarray) -> float:
+    """
+    Exact 3D Hypervolume via sweep-line (WFG/HSO-style).
+
+    points: (N, 3) array already in minimisation-objective space
+            (1-JFI, |Moran's I|, lisa_penalty) — as produced by
+            load_unified_archive().
+    ref:    (3,) reference point (all objectives must be dominated by ref).
+
+    Replaces the previous Monte Carlo approximation (hypervolume_mc).
+    """
     if len(points) == 0:
         return 0.0
-
-    d = points.shape[1]
-    ideal = points.min(axis=0)
-    box_vol = float(np.prod(ref - ideal))
-    if box_vol <= 0:
+    pts = points[np.all(points < ref, axis=1)]
+    if len(pts) == 0:
         return 0.0
+    pts = pts[pts[:, 2].argsort()]
+    hv = 0.0
+    prev_z = ref[2]
+    for i in range(len(pts) - 1, -1, -1):
+        slice_depth = prev_z - pts[i][2]
+        if slice_depth <= 0:
+            prev_z = pts[i][2]
+            continue
+        hv += _hv2d_exact(pts[: i + 1, :2], ref[:2]) * slice_depth
+        prev_z = pts[i][2]
+    return hv
 
-    samples = rng.uniform(ideal, ref, size=(n_samples, d))
-    dominated_count = 0
-    for s in samples:
-        if np.any(np.all(points <= s, axis=1)):
-            dominated_count += 1
 
-    return box_vol * dominated_count / n_samples
-
-
-def hypervolume(points: np.ndarray, ref: np.ndarray,
-                n_samples: int = 100_000) -> float:
+def hypervolume(points: np.ndarray, ref: np.ndarray) -> float:
     if points.shape[1] == 2:
         return hypervolume_2d(points, ref)
-    return hypervolume_mc(points, ref, n_samples)
+    return _hv3d_exact(points, ref)
 
 
 # ── Vargha–Delaney A (stochastic superiority) ───────────────────────────────
@@ -151,8 +180,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--mc-samples",
         type=int,
-        default=100_000,
-        help="Monte Carlo samples for HV estimation (default: 100k)",
+        default=None,
+        help="[DEPRECATED] No-op. Exact 3D sweep-line is used; Monte Carlo estimation "
+             "has been removed.",
     )
     p.add_argument(
         "--budget",
@@ -336,9 +366,13 @@ def main() -> int:
     print(f"Reference point: {ref}")
     print(f"Combined reference front: {len(combined)} points")
 
+    if args.mc_samples is not None:
+        print("WARNING: --mc-samples is deprecated and has no effect. "
+              "Exact 3D sweep-line HV is used.", file=sys.stderr)
+
     hv_table: List[Dict] = []
     for algo, seed, budget, front in fronts:
-        hv = hypervolume(front, ref, args.mc_samples)
+        hv = hypervolume(front, ref)
         hv_table.append({
             "algorithm": algo,
             "seed": seed,
