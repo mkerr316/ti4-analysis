@@ -80,9 +80,9 @@ except ImportError:
 "
 echo "============================================================"
 
-# ── Phase 1: Hyperparameter Tuning (disjoint seeds 9000+) ────────────────────
+# ── Phase 0: SA hyperparameter tuning (required before Phase 1) ─────────────
 echo ""
-echo "--- Phase 1a: Tuning SA (${TUNING_TRIALS} trials, ${TUNING_SEEDS} seeds) ---"
+echo "--- Phase 0: SA hyperparameter tuning (${TUNING_TRIALS} trials, seeds ${TUNING_BASE_SEED}+) ---"
 $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --algo sa \
     --trials "$TUNING_TRIALS" \
@@ -92,7 +92,44 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --output-dir "$OUTPUT_DIR"
 
 echo ""
-echo "--- Phase 1b: Tuning NSGA-II (${TUNING_TRIALS} trials, ${TUNING_SEEDS} seeds) ---"
+echo "--- Extracting SA tuned hyperparameters (for Phase 1) ---"
+read SA_RATE SA_MIN_TEMP < <(
+$PYTHON_BIN -c "
+import json, glob, sys
+params = {}
+for path in sorted(glob.glob('${OUTPUT_DIR}/optuna_*/best_params.json')):
+    with open(path) as f:
+        d = json.load(f)
+    params[d['algorithm']] = d['best_params']
+if 'sa' not in params:
+    print('FATAL: No SA tuning results found', file=sys.stderr)
+    sys.exit(1)
+sa = params['sa']
+print(sa['initial_acceptance_rate'], sa['min_temp'])
+"
+)
+echo "  SA: rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
+
+# ── Phase 1: Main experiment (four-condition ablation, SA, tuned parameters) ──
+echo ""
+echo "--- Phase 1: Main experiment — four-condition ablation (${SEEDS} seeds, SA, tuned params) ---"
+$PYTHON_BIN scripts/benchmark_engine.py \
+    --conditions jfi_only,moran_only,lsap_only,full_composite \
+    --seeds "$SEEDS" \
+    --budgets "$BUDGETS" \
+    --players "$PLAYERS" \
+    --workers "$WORKERS" \
+    --chains 3 \
+    --sa-rate "$SA_RATE" \
+    --sa-min-temp "$SA_MIN_TEMP" \
+    --output-dir "$OUTPUT_DIR"
+
+PRIMARY_RESULTS_CSV=$(find "$OUTPUT_DIR" -name "results.csv" -path "*/benchmark_*" | sort | tail -1)
+echo "Primary results CSV (Phase 1): $PRIMARY_RESULTS_CSV"
+
+# ── Phase 2a: Tuning NSGA-II, SGA, TS (for methods justification run) ─────────
+echo ""
+echo "--- Phase 2a: Tuning NSGA-II, SGA, TS (${TUNING_TRIALS} trials each) ---"
 $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --algo nsga2 \
     --trials "$TUNING_TRIALS" \
@@ -101,8 +138,6 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --players "$PLAYERS" \
     --output-dir "$OUTPUT_DIR"
 
-echo ""
-echo "--- Phase 1c: Tuning SGA (${TUNING_TRIALS} trials, ${TUNING_SEEDS} seeds) ---"
 $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --algo sga \
     --trials "$TUNING_TRIALS" \
@@ -111,8 +146,6 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --players "$PLAYERS" \
     --output-dir "$OUTPUT_DIR"
 
-echo ""
-echo "--- Phase 1d: Tuning TS (${TUNING_TRIALS} trials, ${TUNING_SEEDS} seeds) ---"
 $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --algo ts \
     --trials "$TUNING_TRIALS" \
@@ -121,51 +154,35 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
     --players "$PLAYERS" \
     --output-dir "$OUTPUT_DIR"
 
-# ── Extract tuned hyperparameters (fail-loud, no silent defaults) ─────────────
 echo ""
-echo "--- Extracting tuned hyperparameters ---"
+echo "--- Extracting all tuned hyperparameters (for Phase 2b) ---"
 read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM SGA_BLOB SGA_MUT SGA_WARM TS_K < <(
 $PYTHON_BIN -c "
 import json, glob, sys
-
 params = {}
 for path in sorted(glob.glob('${OUTPUT_DIR}/optuna_*/best_params.json')):
     with open(path) as f:
         d = json.load(f)
     params[d['algorithm']] = d['best_params']
-
 for algo in ('sa', 'nsga2', 'sga', 'ts'):
     if algo not in params:
         print(f'FATAL: No {algo.upper()} tuning results found', file=sys.stderr)
         sys.exit(1)
-
-sa = params['sa']
-ng = params['nsga2']
-sg = params['sga']
-ts = params['ts']
-
-print(
-    sa['initial_acceptance_rate'],
-    sa['min_temp'],
-    ng['blob_fraction'],
-    ng['mutation_rate'],
-    ng['warm_fraction'],
-    sg['blob_fraction'],
-    sg['mutation_rate'],
-    sg['warm_fraction'],
-    ts['tabu_tenure_coefficient'],
-)
+sa, ng, sg, ts = params['sa'], params['nsga2'], params['sga'], params['ts']
+print(sa['initial_acceptance_rate'], sa['min_temp'],
+      ng['blob_fraction'], ng['mutation_rate'], ng['warm_fraction'],
+      sg['blob_fraction'], sg['mutation_rate'], sg['warm_fraction'],
+      ts['tabu_tenure_coefficient'])
 "
 )
-
 echo "  SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "  NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
 echo "  SGA:     blob=$SGA_BLOB  mut=$SGA_MUT  warm=$SGA_WARM"
 echo "  TS:      k=$TS_K"
 
-# ── Phase 2: Saturation Study (1k → 500k evaluations, parallel) ──────────────
+# ── Phase 2b: Methods justification (algorithm comparison, not primary results) ─
 echo ""
-echo "--- Phase 2: Saturation Benchmark (${SEEDS} seeds × ${BUDGETS}, ${WORKERS} workers) ---"
+echo "--- Phase 2b: Methods justification — algorithm benchmarking (${SEEDS} seeds × ${BUDGETS}, ${WORKERS} workers) ---"
 $PYTHON_BIN scripts/benchmark_engine.py \
     --seeds "$SEEDS" \
     --algorithms "$ALGORITHMS" \
@@ -184,16 +201,16 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --ts-k "$TS_K" \
     --output-dir "$OUTPUT_DIR"
 
-# ── Locate results CSV ───────────────────────────────────────────────────────
+# ── Locate results CSV (Phase 2b for algorithm-comparison analysis) ──────────
 RESULTS_CSV=$(find "$OUTPUT_DIR" -name "results.csv" -path "*/benchmark_*" | sort | tail -1)
 
 if [ -z "$RESULTS_CSV" ]; then
     echo "ERROR: results.csv not found in $OUTPUT_DIR" >&2
     exit 1
 fi
-echo "Results CSV   : $RESULTS_CSV"
+echo "Results CSV (Phase 2b, for algorithm analysis): $RESULTS_CSV"
 
-# ── Phase 3: Statistical Analysis ────────────────────────────────────────────
+# ── Phase 3: Statistical Analysis (on Phase 2b algorithm-comparison results) ───
 echo ""
 echo "--- Phase 3a: Non-parametric analysis + sensitivity + ablation ---"
 $PYTHON_BIN scripts/analyze_benchmark.py "$RESULTS_CSV" --sensitivity --ablation
@@ -267,8 +284,9 @@ fi
 echo ""
 echo "============================================================"
 echo "All phases complete."
-echo "Output dir    : $OUTPUT_DIR"
-echo "Results CSV   : $RESULTS_CSV"
+echo "Output dir              : $OUTPUT_DIR"
+echo "Primary results (P1)   : $PRIMARY_RESULTS_CSV"
+echo "Methods results (P2b)  : $RESULTS_CSV"
 echo "------------------------------------------------------------"
 echo "Tuned SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
 echo "Tuned NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"

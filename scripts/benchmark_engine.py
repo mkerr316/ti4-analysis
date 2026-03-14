@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """
-Monte Carlo benchmark: compare Greedy HC, Simulated Annealing, NSGA-II, and
-Tabu Search on the same random TI4 map seeds.
+Monte Carlo benchmark for TI4 map optimization.
+
+Supports two modes:
+  (1) Main experiment: four-condition ablation (JFI-only, Moran-only, LSAP-only,
+      full composite) via --conditions. Use --algorithms sa (default when
+      --conditions is set). Output includes a condition column for analysis.
+  (2) Methods justification: multi-algorithm, multi-budget runs (e.g. rs, hc, sa,
+      sga, nsga2, ts) when --conditions is not set.
 
 All algorithms receive an equal evaluation budget per budget level.
-Supports multiprocessing via --workers for embarrassingly parallel speedup
-(each seed is independent — no shared state between workers).
+Supports multiprocessing via --workers (each seed is independent).
 
 Usage:
-    python scripts/benchmark_engine.py [--seeds N] [--budgets 1000,5000,10000]
-        [--workers 16] [--algorithms hc,sa,nsga2,ts] [--output-dir PATH]
+    # Main experiment (four-condition ablation, SA)
+    python scripts/benchmark_engine.py --conditions jfi_only,moran_only,lsap_only,full_composite \\
+        --seeds 100 --budgets 10000,50000,100000,500000 --output-dir output/
+
+    # Methods justification (algorithm comparison)
+    python scripts/benchmark_engine.py --algorithms hc,sa,nsga2,ts [--budgets ...] [--output-dir PATH]
 
 Outputs (inside --output-dir / benchmark_YYYYMMDD_HHMMSS/):
-    results.csv      — one row per (seed, algorithm, budget)
+    results.csv      — one row per (seed, algorithm, budget[, condition])
     run_config.json  — CLI params + git hash for reproducibility
 """
 
@@ -36,7 +45,7 @@ from typing import Dict, List
 # ---------------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Monte Carlo benchmark: HC vs SA vs NSGA-II vs TS")
+    p = argparse.ArgumentParser(description="Monte Carlo benchmark: main experiment (--conditions) or methods justification (--algorithms)")
     p.add_argument("--seeds",       type=int, default=100,    help="Number of random seeds")
     p.add_argument("--hc-iter",     type=int, default=1000,   help="HC iterations per seed")
     p.add_argument("--sa-iter",     type=int, default=1000,   help="SA iterations per seed")
@@ -77,13 +86,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--chains",     type=int, default=1,
                    help="Number of independent chains per (seed, algorithm, budget) for "
                         "R-hat convergence diagnostic (default: 1). Use 3+ for rigor.")
+    p.add_argument("--conditions", type=str, default=None,
+                   help="Comma-separated condition names for main experiment: "
+                        "jfi_only,moran_only,lsap_only,full_composite. When set, "
+                        "algorithms default to sa and --weight-grid-step must be 0.")
     p.add_argument("--weight-grid-step", type=float, default=0.0,
                    help="Simplex step size for SO algorithm weight grid (default: 0 = "
-                        "disabled, uses only canonical 5:5:3). With e.g. 0.2, runs each "
-                        "SO algorithm on 21 weight vectors, splitting the total budget "
-                        "equally (B/k evaluations per vector) to ensure parity with "
-                        "NSGA-II. The union of per-vector best solutions forms the "
-                        "Aggregated SO Frontier for HV comparison.")
+                        "disabled). Incompatible with --conditions.")
     p.add_argument("--corrected-landscape", action="store_true",
                    help="Enable structural corrections: Gen-0 static normalization, "
                         "smooth objectives, sqrt(k_i) LSAP, TS tenure 0.05*C(S,2).")
@@ -91,11 +100,23 @@ def parse_args() -> argparse.Namespace:
 
 
 # ---------------------------------------------------------------------------
+# Condition weights (main experiment: four-condition ablation)
+# ---------------------------------------------------------------------------
+
+CONDITIONS = {
+    "jfi_only":       (0.0, 1.0, 0.0),   # (morans_i, jains_index, lisa_penalty)
+    "moran_only":     (1.0, 0.0, 0.0),
+    "lsap_only":      (0.0, 0.0, 1.0),
+    "full_composite": (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0),
+}
+
+
+# ---------------------------------------------------------------------------
 # CSV helpers
 # ---------------------------------------------------------------------------
 
 CSV_FIELDS = [
-    "seed", "algorithm", "budget", "chain_id", "weight_vector",
+    "seed", "algorithm", "budget", "chain_id", "weight_vector", "condition",
     "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
     "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
     "evals_to_best",
@@ -112,6 +133,7 @@ def make_row(
     evals_to_best: int = -1,
     chain_id: int = 0,
     weight_vector: str = "none",
+    condition: str = "none",
 ) -> Dict:
     return {
         "seed":           seed,
@@ -119,6 +141,7 @@ def make_row(
         "budget":         budget,
         "chain_id":       chain_id,
         "weight_vector":  weight_vector,
+        "condition":      condition,
         "balance_gap":    round(float(score.balance_gap),        4),
         "morans_i":       round(float(score.morans_i),           4),
         "jains_index":    round(float(score.jains_index),        4),
@@ -133,10 +156,11 @@ def make_row(
 
 
 def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0,
-                   chain_id: int = 0, weight_vector: str = "none") -> Dict:
+                   chain_id: int = 0, weight_vector: str = "none",
+                   condition: str = "none") -> Dict:
     return {
         "seed": seed, "algorithm": algorithm, "budget": budget, "chain_id": chain_id,
-        "weight_vector": weight_vector,
+        "weight_vector": weight_vector, "condition": condition,
         "balance_gap": float("nan"), "morans_i": float("nan"),
         "jains_index": float("nan"), "jfi_resources": float("nan"),
         "jfi_influence": float("nan"), "lisa_penalty": float("nan"),
@@ -174,6 +198,33 @@ def print_summary(accum: Dict[str, Dict[str, List[float]]]) -> None:
             f"{_fmt(d['elapsed_sec']):>14}"
         )
     print("=" * len(header))
+
+
+# ---------------------------------------------------------------------------
+# Weight grid helpers
+# ---------------------------------------------------------------------------
+
+def _simplex_weight_grid(step: float):
+    """
+    All (w_mi, w_jfi, w_lp) triples on the 3-simplex at the given step size,
+    always including the canonical 5:5:3 weight.
+
+    With step=0.2  → 21 vectors (C(7,2) on a 5-point simplex).
+    With step=0.1  → 66 vectors.
+    """
+    vectors = set()
+    n = round(1.0 / step)
+    for i in range(n + 1):
+        for j in range(n + 1 - i):
+            k = n - i - j
+            vectors.add((round(i / n, 8), round(j / n, 8), round(k / n, 8)))
+    # Always include the canonical 5:5:3 weight
+    vectors.add((round(5 / 13, 8), round(5 / 13, 8), round(3 / 13, 8)))
+    return sorted(vectors)
+
+
+def _wv_label(w_mi: float, w_jfi: float, w_lp: float) -> str:
+    return f"{w_mi:.4f}:{w_jfi:.4f}:{w_lp:.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -227,10 +278,24 @@ def _run_seed(job):
     (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
      players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
      nsga_mut, nsga_warm, ts_tenure, ts_k,
-     sga_blob, sga_mut, sga_warm, chains, corrected_landscape) = job
+     sga_blob, sga_mut, sga_warm, chains, corrected_landscape,
+     weight_grid_step, conditions_list) = job
 
     algos = set(algos_list)
     n_chains = max(1, int(chains))
+
+    # Weight vectors: from --conditions (main experiment) or simplex grid or single default.
+    if conditions_list is not None:
+        weight_vectors = [CONDITIONS[c] for c in conditions_list]
+        condition_labels = conditions_list
+    elif weight_grid_step > 0.0:
+        weight_vectors = _simplex_weight_grid(weight_grid_step)
+        condition_labels = None
+    else:
+        weight_vectors = [(round(1.0 / 3.0, 8), round(1.0 / 3.0, 8), round(1.0 / 3.0, 8))]
+        condition_labels = None
+    k_wv = len(weight_vectors)
+    per_vector_budget = max(1, budget // k_wv)
 
     import numpy as np
 
@@ -372,86 +437,129 @@ def _run_seed(job):
         # ── Random Search (baseline) ──────────────────────────────
         if "rs" in algos:
             for chain_id in range(n_chains):
-                run_seed = seed * 1000 + chain_id
-                rs_map = initial_map.copy()
-                t0 = time.time()
-                topo = MapTopology.from_ti4_map(rs_map, evaluator)
-                fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
-                best_rs_score = evaluate_map_multiobjective(
-                    rs_map, evaluator, fast_state=fs_base, **eval_kw
-                )
-                rs_front = [best_rs_score]
-                rng_rs = np.random.default_rng(run_seed)
-                S = len(topo.swappable_indices)
-                rs_etb = 0
-                rs_history = [(0, best_rs_score)]
-                for ev in range(1, budget):
-                    fs = fs_base.clone()
-                    perm = rng_rs.permutation(S)
-                    for i in range(S - 1, 0, -1):
-                        if perm[i] != i:
-                            fs.swap(perm[i], i)
-                    candidate = evaluate_map_multiobjective(
-                        rs_map, evaluator, fast_state=fs, **eval_kw
+                rs_agg_front = []
+                rs_history_canonical = []
+                for wv_idx, (w_mi, w_jfi, w_lp) in enumerate(weight_vectors):
+                    weights = {"morans_i": w_mi, "jains_index": w_jfi, "lisa_penalty": w_lp}
+                    wv_kw = {**eval_kw, "weights": weights}
+                    wv_label = condition_labels[wv_idx] if condition_labels else (_wv_label(w_mi, w_jfi, w_lp) if k_wv > 1 else "none")
+                    condition = condition_labels[wv_idx] if condition_labels else "none"
+                    # Preserve original seed formula when k==1 for reproducibility
+                    if k_wv == 1:
+                        wv_run_seed = seed * 1000 + chain_id
+                    else:
+                        wv_run_seed = seed * 100_000 + chain_id * 1000 + wv_idx
+                    rs_map = initial_map.copy()
+                    t0 = time.time()
+                    topo = MapTopology.from_ti4_map(rs_map, evaluator)
+                    fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
+                    best_rs_score = evaluate_map_multiobjective(
+                        rs_map, evaluator, fast_state=fs_base, **wv_kw
                     )
-                    rs_front = _update_front(rs_front, candidate)
-                    if candidate.composite_score() < best_rs_score.composite_score():
-                        best_rs_score = candidate
-                        rs_etb = ev
-                    rs_history.append((ev, best_rs_score))
-                    del fs
-                rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
-                                     evals_to_best=rs_etb, chain_id=chain_id))
-                _hv_archives.append(("rs", seed, budget, chain_id, _front_to_rows(rs_front)))
-                if n_chains > 1:
-                    _trajectories.append(("rs", seed, budget, chain_id, _sample_trajectory(rs_history)))
-                del rs_map, topo, fs_base
+                    rs_front = [best_rs_score]
+                    rng_rs = np.random.default_rng(wv_run_seed)
+                    S = len(topo.swappable_indices)
+                    rs_etb = 0
+                    rs_history = [(0, best_rs_score)]
+                    for ev in range(1, per_vector_budget):
+                        fs = fs_base.clone()
+                        perm = rng_rs.permutation(S)
+                        for i in range(S - 1, 0, -1):
+                            if perm[i] != i:
+                                fs.swap(perm[i], i)
+                        candidate = evaluate_map_multiobjective(
+                            rs_map, evaluator, fast_state=fs, **wv_kw
+                        )
+                        rs_front = _update_front(rs_front, candidate)
+                        if candidate.composite_score() < best_rs_score.composite_score():
+                            best_rs_score = candidate
+                            rs_etb = ev
+                        rs_history.append((ev, best_rs_score))
+                        del fs
+                    rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
+                                         evals_to_best=rs_etb, chain_id=chain_id,
+                                         weight_vector=wv_label, condition=condition))
+                    for sc in rs_front:
+                        rs_agg_front = _update_front(rs_agg_front, sc)
+                    if wv_idx == 0:
+                        rs_history_canonical = rs_history
+                    del rs_map, topo, fs_base
+                _hv_archives.append(("rs", seed, budget, chain_id, _front_to_rows(rs_agg_front)))
+                if n_chains > 1 and k_wv == 1:
+                    _trajectories.append(("rs", seed, budget, chain_id,
+                                          _sample_trajectory(rs_history_canonical)))
 
         if "hc" in algos:
             for chain_id in range(n_chains):
-                run_seed = seed * 1000 + chain_id
-                hc_map = initial_map.copy()
-                t0 = time.time()
-                hc_score, hc_history, hc_etb = hc_optimize(
-                    hc_map, evaluator,
-                    iterations=hc_iter,
-                    random_seed=run_seed,
-                    verbose=False,
-                    **eval_kw,
-                )
-                rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
-                                     evals_to_best=hc_etb, chain_id=chain_id))
-                hc_front = []
-                for _, sc in hc_history:
-                    hc_front = _update_front(hc_front, sc)
-                _hv_archives.append(("hc", seed, budget, chain_id, _front_to_rows(hc_front)))
-                if n_chains > 1:
-                    _trajectories.append(("hc", seed, budget, chain_id, _sample_trajectory(hc_history)))
-                del hc_map
+                hc_agg_front = []
+                hc_history_canonical = []
+                for wv_idx, (w_mi, w_jfi, w_lp) in enumerate(weight_vectors):
+                    weights = {"morans_i": w_mi, "jains_index": w_jfi, "lisa_penalty": w_lp}
+                    wv_label = condition_labels[wv_idx] if condition_labels else (_wv_label(w_mi, w_jfi, w_lp) if k_wv > 1 else "none")
+                    condition = condition_labels[wv_idx] if condition_labels else "none"
+                    if k_wv == 1:
+                        wv_run_seed = seed * 1000 + chain_id
+                    else:
+                        wv_run_seed = seed * 100_000 + chain_id * 1000 + wv_idx
+                    hc_map = initial_map.copy()
+                    t0 = time.time()
+                    hc_score, hc_history, hc_etb = hc_optimize(
+                        hc_map, evaluator,
+                        iterations=per_vector_budget,
+                        random_seed=wv_run_seed,
+                        verbose=False,
+                        weights=weights,
+                        **eval_kw,
+                    )
+                    rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
+                                         evals_to_best=hc_etb, chain_id=chain_id,
+                                         weight_vector=wv_label, condition=condition))
+                    for _, sc in hc_history:
+                        hc_agg_front = _update_front(hc_agg_front, sc)
+                    if wv_idx == 0:
+                        hc_history_canonical = hc_history
+                    del hc_map
+                _hv_archives.append(("hc", seed, budget, chain_id, _front_to_rows(hc_agg_front)))
+                if n_chains > 1 and k_wv == 1:
+                    _trajectories.append(("hc", seed, budget, chain_id,
+                                          _sample_trajectory(hc_history_canonical)))
 
         if "sa" in algos:
             for chain_id in range(n_chains):
-                run_seed = seed * 1000 + chain_id
-                sa_map = initial_map.copy()
-                t0 = time.time()
-                sa_score, sa_history, sa_etb = improve_balance_spatial(
-                    sa_map, evaluator,
-                    iterations=sa_iter,
-                    initial_acceptance_rate=sa_rate,
-                    min_temp=sa_min_temp,
-                    random_seed=run_seed,
-                    verbose=False,
-                    **eval_kw,
-                )
-                rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
-                                     evals_to_best=sa_etb, chain_id=chain_id))
-                sa_front = []
-                for _, sc in sa_history:
-                    sa_front = _update_front(sa_front, sc)
-                _hv_archives.append(("sa", seed, budget, chain_id, _front_to_rows(sa_front)))
-                if n_chains > 1:
-                    _trajectories.append(("sa", seed, budget, chain_id, _sample_trajectory(sa_history)))
-                del sa_map
+                sa_agg_front = []
+                sa_history_canonical = []
+                for wv_idx, (w_mi, w_jfi, w_lp) in enumerate(weight_vectors):
+                    weights = {"morans_i": w_mi, "jains_index": w_jfi, "lisa_penalty": w_lp}
+                    wv_label = condition_labels[wv_idx] if condition_labels else (_wv_label(w_mi, w_jfi, w_lp) if k_wv > 1 else "none")
+                    condition = condition_labels[wv_idx] if condition_labels else "none"
+                    if k_wv == 1:
+                        wv_run_seed = seed * 1000 + chain_id
+                    else:
+                        wv_run_seed = seed * 100_000 + chain_id * 1000 + wv_idx
+                    sa_map = initial_map.copy()
+                    t0 = time.time()
+                    sa_score, sa_history, sa_etb = improve_balance_spatial(
+                        sa_map, evaluator,
+                        iterations=per_vector_budget,
+                        initial_acceptance_rate=sa_rate,
+                        min_temp=sa_min_temp,
+                        random_seed=wv_run_seed,
+                        verbose=False,
+                        weights=weights,
+                        **eval_kw,
+                    )
+                    rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
+                                         evals_to_best=sa_etb, chain_id=chain_id,
+                                         weight_vector=wv_label, condition=condition))
+                    for _, sc in sa_history:
+                        sa_agg_front = _update_front(sa_agg_front, sc)
+                    if wv_idx == 0:
+                        sa_history_canonical = sa_history
+                    del sa_map
+                _hv_archives.append(("sa", seed, budget, chain_id, _front_to_rows(sa_agg_front)))
+                if n_chains > 1 and k_wv == 1:
+                    _trajectories.append(("sa", seed, budget, chain_id,
+                                          _sample_trajectory(sa_history_canonical)))
 
         if "nsga2" in algos:
             ref_hv = np.array([1.2, 1.2, 1.2])
@@ -479,10 +587,11 @@ def _run_seed(job):
                     smooth_p=eval_kw.get("smooth_p", 8.0),
                     smooth_k=eval_kw.get("smooth_k", 10.0),
                     use_local_variance_lisa=eval_kw.get("use_local_variance_lisa", True),
+                    normalizer_sigma=eval_kw.get("normalizer_sigma"),
                 )
                 best_score = min(front, key=lambda x: x[1].composite_score())[1]
                 rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
-                                     len(front), budget, chain_id=chain_id))
+                                     len(front), budget, chain_id=chain_id, condition="none"))
 
                 # Save Pareto archive for Track B quality indicators
                 archive_rows = []
@@ -511,62 +620,88 @@ def _run_seed(job):
 
         if "sga" in algos:
             for chain_id in range(n_chains):
-                run_seed = seed * 1000 + chain_id
-                sga_map = initial_map.copy()
-                t0 = time.time()
-                sga_gen = max(1, budget // nsga_pop)
-                sga_score, sga_history = sga_optimize(
-                    sga_map, evaluator,
-                    generations=sga_gen,
-                    population_size=nsga_pop,
-                    blob_fraction=sga_blob,
-                    mutation_rate=sga_mut,
-                    warm_fraction=sga_warm,
-                    random_seed=run_seed,
-                    verbose=False,
-                    **eval_kw,
-                )
-                sga_etb = 0
-                best_c = float('inf')
-                sga_front = []
-                for evals, sc in sga_history:
-                    if sc.composite_score() < best_c:
-                        best_c = sc.composite_score()
-                        sga_etb = evals
-                    sga_front = _update_front(sga_front, sc)
-                rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
-                                     evals_to_best=sga_etb, chain_id=chain_id))
-                _hv_archives.append(("sga", seed, budget, chain_id, _front_to_rows(sga_front)))
-                if n_chains > 1:
-                    _trajectories.append(("sga", seed, budget, chain_id, _sample_trajectory(sga_history)))
-                del sga_map
+                sga_agg_front = []
+                sga_history_canonical = []
+                for wv_idx, (w_mi, w_jfi, w_lp) in enumerate(weight_vectors):
+                    weights = {"morans_i": w_mi, "jains_index": w_jfi, "lisa_penalty": w_lp}
+                    wv_label = condition_labels[wv_idx] if condition_labels else (_wv_label(w_mi, w_jfi, w_lp) if k_wv > 1 else "none")
+                    condition = condition_labels[wv_idx] if condition_labels else "none"
+                    if k_wv == 1:
+                        wv_run_seed = seed * 1000 + chain_id
+                    else:
+                        wv_run_seed = seed * 100_000 + chain_id * 1000 + wv_idx
+                    sga_map = initial_map.copy()
+                    t0 = time.time()
+                    sga_gen = max(1, per_vector_budget // nsga_pop)
+                    sga_score, sga_history = sga_optimize(
+                        sga_map, evaluator,
+                        generations=sga_gen,
+                        population_size=nsga_pop,
+                        blob_fraction=sga_blob,
+                        mutation_rate=sga_mut,
+                        warm_fraction=sga_warm,
+                        random_seed=wv_run_seed,
+                        verbose=False,
+                        weights=weights,
+                        **eval_kw,
+                    )
+                    sga_etb = 0
+                    best_c = float("inf")
+                    for evals, sc in sga_history:
+                        if sc.composite_score() < best_c:
+                            best_c = sc.composite_score()
+                            sga_etb = evals
+                        sga_agg_front = _update_front(sga_agg_front, sc)
+                    rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
+                                         evals_to_best=sga_etb, chain_id=chain_id,
+                                         weight_vector=wv_label, condition=condition))
+                    if wv_idx == 0:
+                        sga_history_canonical = sga_history
+                    del sga_map
+                _hv_archives.append(("sga", seed, budget, chain_id, _front_to_rows(sga_agg_front)))
+                if n_chains > 1 and k_wv == 1:
+                    _trajectories.append(("sga", seed, budget, chain_id,
+                                          _sample_trajectory(sga_history_canonical)))
 
         if "ts" in algos:
             for chain_id in range(n_chains):
-                run_seed = seed * 1000 + chain_id
-                ts_map = initial_map.copy()
-                t0 = time.time()
-                ts_kw = dict(**eval_kw)
-                if ts_k is not None:
-                    ts_kw["tabu_tenure_coefficient"] = ts_k
-                elif ts_tenure is not None:
-                    ts_kw["tabu_tenure"] = ts_tenure
-                ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
-                    ts_map, evaluator,
-                    max_evaluations=budget,
-                    random_seed=run_seed,
-                    verbose=False,
-                    **ts_kw,
-                )
-                rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
-                                     evals_to_best=ts_etb, chain_id=chain_id))
-                ts_front = []
-                for _, sc in ts_history:
-                    ts_front = _update_front(ts_front, sc)
-                _hv_archives.append(("ts", seed, budget, chain_id, _front_to_rows(ts_front)))
-                if n_chains > 1:
-                    _trajectories.append(("ts", seed, budget, chain_id, _sample_trajectory(ts_history)))
-                del ts_map
+                ts_agg_front = []
+                ts_history_canonical = []
+                for wv_idx, (w_mi, w_jfi, w_lp) in enumerate(weight_vectors):
+                    weights = {"morans_i": w_mi, "jains_index": w_jfi, "lisa_penalty": w_lp}
+                    wv_label = condition_labels[wv_idx] if condition_labels else (_wv_label(w_mi, w_jfi, w_lp) if k_wv > 1 else "none")
+                    condition = condition_labels[wv_idx] if condition_labels else "none"
+                    if k_wv == 1:
+                        wv_run_seed = seed * 1000 + chain_id
+                    else:
+                        wv_run_seed = seed * 100_000 + chain_id * 1000 + wv_idx
+                    ts_map = initial_map.copy()
+                    t0 = time.time()
+                    ts_kw = dict(**eval_kw)
+                    ts_kw["weights"] = weights
+                    if ts_k is not None:
+                        ts_kw["tabu_tenure_coefficient"] = ts_k
+                    elif ts_tenure is not None:
+                        ts_kw["tabu_tenure"] = ts_tenure
+                    ts_score, ts_history, ts_etb, _ = improve_balance_tabu(
+                        ts_map, evaluator,
+                        max_evaluations=per_vector_budget,
+                        random_seed=wv_run_seed,
+                        verbose=False,
+                        **ts_kw,
+                    )
+                    rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
+                                         evals_to_best=ts_etb, chain_id=chain_id,
+                                         weight_vector=wv_label, condition=condition))
+                    for _, sc in ts_history:
+                        ts_agg_front = _update_front(ts_agg_front, sc)
+                    if wv_idx == 0:
+                        ts_history_canonical = ts_history
+                    del ts_map
+                _hv_archives.append(("ts", seed, budget, chain_id, _front_to_rows(ts_agg_front)))
+                if n_chains > 1 and k_wv == 1:
+                    _trajectories.append(("ts", seed, budget, chain_id,
+                                          _sample_trajectory(ts_history_canonical)))
 
         return True, rows, _pareto_archives, _hv_archives, _trajectories
 
@@ -589,12 +724,32 @@ def _run_seed(job):
 
 def main() -> int:
     args = parse_args()
+
+    # Mutual exclusivity: --conditions and --weight-grid-step > 0 cannot both be set.
+    weight_grid_step = getattr(args, "weight_grid_step", 0.0)
+    if getattr(args, "conditions", None) and weight_grid_step > 0.0:
+        print("ERROR: Cannot use --conditions with --weight-grid-step > 0; "
+              "they specify objective weights in incompatible ways.", file=sys.stderr)
+        return 1
+
+    # When running main experiment (--conditions), default to SA only.
+    if getattr(args, "conditions", None):
+        args.algorithms = "sa"
     algos = {a.strip().lower() for a in args.algorithms.split(",")}
     valid = {"hc", "sa", "sga", "nsga2", "ts", "rs"}
     unknown = algos - valid
     if unknown:
         print(f"ERROR: Unknown algorithms: {unknown}. Valid: {valid}", file=sys.stderr)
         return 1
+
+    # Parse and validate condition names for main experiment.
+    conditions_list = None
+    if getattr(args, "conditions", None):
+        conditions_list = [c.strip() for c in args.conditions.split(",") if c.strip()]
+        invalid = [c for c in conditions_list if c not in CONDITIONS]
+        if invalid:
+            print(f"ERROR: Unknown conditions: {invalid}. Valid: {list(CONDITIONS)}", file=sys.stderr)
+            return 1
 
     # Initialize evaluator for the main process
     _init_pool()
@@ -628,6 +783,8 @@ def main() -> int:
         "ts_k":        args.ts_k,
         "chains":      max(1, getattr(args, "chains", 1)),
         "corrected_landscape": getattr(args, "corrected_landscape", False),
+        "weight_grid_step": getattr(args, "weight_grid_step", 0.0),
+        "conditions": conditions_list,
         "started_at": datetime.now().isoformat(),
     }
     try:
@@ -685,12 +842,21 @@ def main() -> int:
                 accum: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
 
                 n_chains = max(1, getattr(args, "chains", 1))
+                weight_grid_step = getattr(args, "weight_grid_step", 0.0)
+                if weight_grid_step > 0.0:
+                    wg = _simplex_weight_grid(weight_grid_step)
+                    k_log = len(wg)
+                    pvb_log = max(1, budget // k_log)
+                    print(f"   SO weight grid: step={weight_grid_step}, k={k_log} vectors, "
+                          f"{pvb_log} evals/vector (total budget {budget} split equally)")
+
                 jobs = [
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
                      args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
                      args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure, args.ts_k,
                      args.sga_blob, args.sga_mut, args.sga_warm, n_chains,
-                     getattr(args, "corrected_landscape", False))
+                     getattr(args, "corrected_landscape", False),
+                     weight_grid_step, conditions_list)
                     for seed in range(args.base_seed, args.base_seed + args.seeds)
                 ]
 

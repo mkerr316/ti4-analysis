@@ -28,13 +28,13 @@ Key algorithmic choice — crossover domain:
 Population seeding — inoculation strategy:
     10% warm starts (low-iteration greedy HC) anchor the Pareto front in
     high-fitness regions; 90% cold starts (random permutations) supply the
-    genetic diversity required by the BFS crossover to splice novel topologies.
+    genetic diversity required by the BFS crossover to splice distinct topologies.
 """
 
 import random
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Callable
+from typing import List, Tuple, Optional, Callable, Dict
 
 import numpy as np
 
@@ -370,6 +370,7 @@ def nsga2_optimize(
     smooth_p: float = 8.0,
     smooth_k: float = 10.0,
     use_local_variance_lisa: bool = True,
+    normalizer_sigma: Optional[Dict[str, float]] = None,
 ) -> List[Tuple[TI4Map, MultiObjectiveScore]]:
     """
     NSGA-II with BFS-blob OX1 crossover for TI4 map Pareto optimisation.
@@ -409,6 +410,7 @@ def nsga2_optimize(
         smooth_p=smooth_p,
         smooth_k=smooth_k,
         use_local_variance_lisa=use_local_variance_lisa,
+        normalizer_sigma=normalizer_sigma,
     )
     # ── Generation 0: seeding ────────────────────────────────────────────────
     population = _seed_population(

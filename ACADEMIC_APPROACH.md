@@ -2,28 +2,28 @@
 
 ## Overview
 
-This repository implements a rigorous academic framework for comparing multi-objective optimization algorithms on hexagonal game map generation.
+This repository implements a rigorous academic framework for **geographic/methodological** contribution: spatial metrics (Moran's I, LSAP) add meaningful constraint beyond scalar fairness (JFI) on topologically embedded discrete spaces. The main experiment is a **four-condition ablation** (JFI-only, Moran's I only, LSAP only, full composite 1:1:1) using SA as the instrument. Algorithms are **instruments**; algorithm comparison is **methods justification**, not the primary result. See [Design_Rationale.md](docs/methodology/Design_Rationale.md).
 
-**NO GAMEPLAY VALIDATION** - This is a pure computational experiment comparing optimization algorithms.
+**NO GAMEPLAY VALIDATION** — This is a pure computational experiment. Human validation (causal chain from spatial clustering to competitive disadvantage in play) is future work.
 
-## Research Questions
+## Research Questions (main experiment)
 
-1. **RQ1**: Does NSGA-II converge faster than hill-climbing?
-2. **RQ2**: Does NSGA-II produce superior Pareto fronts?
-3. **RQ3**: Does unconstrained action space (red tile swapping) expand the Pareto front?
-4. **RQ4**: What trade-offs exist between balance gap and spatial distribution?
-5. **RQ5**: Which algorithm is most computationally efficient?
+1. Do maps from the full-composite condition differ from JFI-only in their spatial profile (LSAP, Moran's I hinge)?
+2. Does JFI parity hold for the full-composite condition (no fairness sacrifice)?
+3. Is the spatial profile difference detectable at all budgets ≥ 10k (pre-specified)?
+
+Algorithm-comparison RQs (which optimizer to use) support methods justification only.
 
 ## Six Algorithms
 
 | ID | Algorithm | Type | Objective |
 |------|-----------|------|-----------|
-| `rs` | Random Search | Null baseline | Scalar composite (5:5:3) |
-| `hc` | Greedy Hill-Climbing | Local search (no escape) | Scalar composite (5:5:3) |
-| `sa` | Simulated Annealing | Markov chain, single-trajectory | Scalar composite (5:5:3) |
-| `sga` | Single-Objective GA | Population-based, scalar tournament | Scalar composite (5:5:3) |
+| `rs` | Random Search | Null baseline | Scalar composite (1:1:1) |
+| `hc` | Greedy Hill-Climbing | Local search (no escape) | Scalar composite (1:1:1) |
+| `sa` | Simulated Annealing | Markov chain, single-trajectory | Scalar composite (1:1:1) |
+| `sga` | Single-Objective GA | Population-based, scalar tournament | Scalar composite (1:1:1) |
 | `nsga2` | NSGA-II | Population-based, Pareto | 3-objective: (1−JFI, \|I\|, LSAP) |
-| `ts` | Tabu Search | Deterministic memory, full-neighbourhood | Scalar composite (5:5:3) |
+| `ts` | Tabu Search | Deterministic memory, full-neighbourhood | Scalar composite (1:1:1) |
 
 > **Naming note:** The production benchmark pipeline (`submit_all.sh`,
 > `benchmark_engine.py`) uses lowercase IDs: `rs`, `hc`, `sa`, `sga`, `nsga2`, `ts`.
@@ -33,7 +33,7 @@ This repository implements a rigorous academic framework for comparing multi-obj
 
 ### Objective hierarchy (Nominal Scalarization)
 
-**Track B (HV, IGD+, Spacing) is the primary evaluation** — the weight-independent Pareto metrics are the gold standard for the manuscript and disarm concerns about arbitrary weighting. Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization**. It provides a fixed target for single-objective trajectories (SA, TS, HC, SGA). The 5:5:3 choice is defensible only when **weight-sensitivity analysis** (`analyze_benchmark.py --sensitivity`) shows that algorithm rankings (e.g. SA over HC) hold across equal weights, JFI-dominant, and spatial-dominant configurations; then 5:5:3 serves as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** — the combined set of all observed non-dominated points across seeds — which is the standard approach when the true Pareto front of the problem is unknown.
+**Primary evaluation** for the paper is **condition comparison** (spatial profile, JFI parity); see Design_Rationale.md. **Track B (HV, IGD+)** supports methods justification. We use **equal weights 1:1:1** for the full composite. Weight-sensitivity analysis tests perturbations around 1:1:1. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front**.
 
 **Cross-method IGD.** To validate that single-objective trajectories approximate the Pareto manifold (and to justify the production engine choice), scalar-algorithm terminal states (SA, TS, HC, SGA) are projected into the 3-objective space $(1 - J_{\min}, |I|, \text{LSAP})$ and their **Inverted Generational Distance Plus (IGD+)** to the per-budget empirical reference front is computed. This provides a geometric distance metric from each scalar terminal to the NSGA-II front at the same evaluation budget. Implementation: `scripts/cross_method_igd.py` (Phase 6b in the pipeline); output: `cross_method_igd.csv`.
 
@@ -69,16 +69,13 @@ pip install -r requirements.txt
 Open `notebooks/08_academic_benchmark_study.ipynb` in Jupyter and execute all cells.
 
 **Configuration options:**
-- `n_trials=30` - Number of independent runs per algorithm (reduce to 3 for testing)
-- `iterations=500` - Optimization iterations/generations
-- `population_size=100` - NSGA-II population size
-
-**Estimated runtime:** 1-2 hours for full 30 trials × 3 algorithms
+- **N=100 seeds** (seeds 0–99) — primary benchmark protocol
+- `iterations` / evaluation budget and `population_size` as set in the pipeline (e.g. `benchmark_engine.py`, `submit_all.sh`)
 
 ### 3. Analyze Results
 
 The notebook automatically:
-- Runs 90 optimization trials (30 per algorithm)
+- Runs the benchmark over N=100 seeds per algorithm (primary protocol)
 - Calculates all quality indicators
 - Performs statistical tests (Wilcoxon with Bonferroni correction)
 - Generates publication-ready figures
@@ -121,16 +118,15 @@ ti4-analysis/
 ## What This Proves (Academically)
 
 ### ✅ You CAN claim:
-- "We compare three optimization algorithms using gold-standard quality indicators"
-- "30 independent trials provide robust statistical power"
-- "Wilcoxon tests with Bonferroni correction control family-wise error"
-- "Effect sizes (Cohen's d, A12) quantify practical significance"
-- "NSGA-II efficiently optimizes multiple spatial objectives simultaneously"
+- "Spatial metrics (Moran's I, LSAP) add meaningful constraint beyond scalar fairness (JFI); four-condition ablation demonstrates this."
+- "Maps from the full-composite condition differ detectably from JFI-only in spatial profile (raw objective vectors); JFI parity check supports interpretation."
+- "Algorithms are instruments; SA is the chosen instrument for the main experiment; algorithm comparison is methods justification."
+- "100 independent seeds, Wilcoxon paired by seed, pre-specified effect size (A ≥ 0.64), Holm–Bonferroni across 6 primary spatial tests."
 
 ### ❌ You CANNOT claim:
 - ~~"AI agents played full games"~~
 - ~~"This measures actual gameplay outcomes"~~
-- ~~"Win-rate variance validates experiential balance"~~
+- ~~"Spatial clustering causes competitive disadvantage in human play"~~ (future work)
 
 ## Publication Output
 

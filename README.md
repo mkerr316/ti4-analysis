@@ -6,7 +6,7 @@ Rigorous spatial-statistical evaluation of map balancing algorithms for *Twiligh
 
 ## Abstract
 
-Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. This project formalizes six optimization algorithms — Random Search (RS), greedy hill-climbing (HC), simulated annealing (SA), a single-objective genetic algorithm (SGA), NSGA-II, and Tabu Search (TS) — against a composite objective that integrates Multi-Jain Fairness (bottleneck JFI across resource dimensions), Moran's I spatial autocorrelation, and a Local Spatial Autocorrelation Penalty (LSAP). The benchmark includes a multi-budget saturation study (1k–500k evaluations) to identify whether population-based (NSGA-II, SGA) or memory-based (TS) methods eventually surpass SA when given sufficient evaluation budget, or whether all algorithms converge to the same near-optimal plateau. SGA isolates the algorithmic architecture comparison: SA vs SGA tests Markov chain vs population-based search on the same scalar objective; SGA vs NSGA-II tests single-objective vs multi-objective on the same operators.
+Standard TI4 map generators optimize numeric resource equality but are spatially blind: a map can satisfy Jain's Fairness Index while simultaneously clustering high-value systems around a single player's neighborhood, creating an asymmetric strategic advantage invisible to scalar metrics. **The paper's contribution is geographic/methodological:** we show that spatial metrics (Moran's I, LSAP) add meaningful constraint beyond scalar fairness (JFI). The main experiment is a **four-condition ablation** (JFI-only, Moran's I only, LSAP only, full composite 1:1:1) using simulated annealing (SA) as the instrument on the same seeds and budgets. We test whether maps from the full-composite condition differ detectably from JFI-only in their spatial profile (LSAP, Moran's I hinge) and report JFI parity. Algorithms are instruments for generating optimized maps; algorithm comparison (six algorithms, multi-budget) is **methods justification** for choosing SA, not the primary result. This study demonstrates computationally that spatial autocorrelation metrics detect map configurations that scalar fairness metrics cannot optimize toward. The causal chain from spatial clustering to competitive disadvantage in human play is not tested here and constitutes the primary empirical question for subsequent work, addressable through telemetry from the companion application or controlled play experiments.
 
 *(The benchmark experiment reported in Key Results pre-dates this formulation and used balance gap as the distributional equity metric; see the version note in Methods.)*
 
@@ -14,7 +14,7 @@ Standard TI4 map generators optimize numeric resource equality but are spatially
 
 ## Key Results
 
-**Primary evaluation is Track B** — weight-independent Pareto quality indicators (Hypervolume, IGD+, Spacing) are the gold standard and the undisputed star of the manuscript. The scalar composite (Track A) is a secondary benchmark for single-objective algorithms under a **nominal** 5:5:3 scalarization; its defensibility rests on weight-sensitivity analysis (see below).
+**Primary result:** Maps from the full-composite condition (1:1:1) differ from JFI-only in their spatial profile (raw objective vectors $(1-J_{\min}, I, \text{LSAP})$); primary figure shows all four conditions. **Track A/B** (scalar composite, Pareto indicators) support **methods justification** (algorithm choice); see [Design_Rationale.md](docs/methodology/Design_Rationale.md) and the main experiment (Phase 1 in `submit_all.sh`: four-condition SA run).
 
 ### Track B — Pareto quality (primary)
 
@@ -28,10 +28,10 @@ NSGA-II is evaluated on the multi-objective trade-off surface without scalarizat
 
 ---
 
-### Track A — Scalar composite (secondary, nominal 5:5:3)
+### Track A — Scalar composite (methods justification, nominal 1:1:1)
 
 > [!CAUTION]
-> **Preliminary Benchmark (Pre-Multi-Jain).** The results below were generated using a scalar `balance_gap` metric and a 1,000-evaluation ceiling with 3 algorithms. These are being superseded by the **Sapelo2 Saturation Study**, which utilizes the Multi-Jain Bottleneck, Tabu Search as a fourth algorithm, and an expanded evaluation budget range (1k–100k). These preliminary results are retained as a reference point for the HC/SA/NSGA-II comparison under the original methodology.
+> **Preliminary Benchmark (Pre-Multi-Jain).** The results below were generated using a scalar `balance_gap` metric and a 1,000-evaluation ceiling with 3 algorithms. These are superseded by the **main paper experiment** (four-condition ablation, SA, Multi-Jain + 1:1:1 composite). These preliminary results are retained as a reference point for the HC/SA/NSGA-II comparison under the original methodology.
 
 ### Preliminary Algorithm Comparison (Track A)
 
@@ -99,20 +99,22 @@ This pattern is consistent with the computational structure of each algorithm. A
 
 ### Problem Formulation
 
+Anomaly tiles (asteroid fields, supernovae, nebulae, gravity rifts) are assigned under a non-adjacency constraint and frozen during optimization; all algorithms operate exclusively on the blue system tile swapping problem.
+
 Map optimization is framed as minimization of a weighted composite score over three objectives:
 
 $$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot |I| + w_3 \cdot \frac{\text{LSAP}}{n(n-1)}$$
 
 where $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This formulation is **theoretically inspired by** the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension; we do not claim the formal DRF axioms, which apply to allocation mechanisms, not fixed topologies.
 
-Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization** — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+); see Track B above. The nominal weights are `w₁ = 5/13`, `w₂ = 5/13`, `w₃ = 3/13`, defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py). **Weight-sensitivity analysis** (`--sensitivity` in `analyze_benchmark.py`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations: equal weights, JFI-dominant, spatial-dominant, and LISA-dominant. Algorithm superiority reported in the manuscript (e.g. SA beating HC on Track A) should hold across these configurations; when it does, the 5:5:3 choice is academically defensible as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
+We use **equal weights 1:1:1** ($w_1 = w_2 = w_3 = 1/3$) for the full composite — a fixed target for single-objective methods (SA, TS, HC, SGA), defined in `MultiObjectiveScore` in [`src/ti4_analysis/algorithms/spatial_optimizer.py`](src/ti4_analysis/algorithms/spatial_optimizer.py). Primary evaluation for the paper is **condition comparison** (spatial profile, JFI parity); see [Design_Rationale.md](docs/methodology/Design_Rationale.md). **Weight-sensitivity analysis** (`--sensitivity` in `analyze_benchmark.py`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations around 1:1:1. HV and IGD+ (Ishibuchi et al., 2015) support methods justification and are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
 **Normalization vs. Weighting:** To prevent the high-variance spatial metrics from masking the fairness gradients during early search, the engine employs **Gen-0 Normalization**. The system samples 1,000 random permutations from the $37!$ state space to calculate the empirical standard deviation ($\sigma$) of each metric. By dividing each metric by its static $\sigma$, all objectives are converted into comparable standard-deviation units. This strictly separates *normalization* (fixing the mathematical units based on empirical state-space properties) from *weighting* (the 5:5:3 strategic preference), ensuring the optimizer respects the intended multi-objective balance.
 
 All three terms are normalized to [0, 1] before weighting:
 
 - `1 − J_min ∈ [0, 1]` — multi-dimensional distributive equity (bottleneck JFI across resource dimensions); minimizing this maximizes the fairness of the least-fair dimension
-- `|morans_i| ∈ [0, 1]` — global spatial clustering (theoretical bound for row-standardized W)
+- $\max(0,\ I - E[I]) \in [0,\ 1 + 1/(n-1)]$ — global spatial clustering (one-sided hinge above null expectation $E[I] = -1/(n-1)$; theoretical bound for row-standardized $\mathbf{W}$)
 - `lisa_penalty / [n × (n − 1)] ∈ [0, 1]` — local H-H / L-L cluster penalty; the divisor `n × (n − 1)` is the theoretical maximum of the sum of positive variance-normalized local Moran's I values (one extreme-value location surrounded by identical-deviation neighbours, replicated across all n positions)
 
 `balance_gap` (max − min player value) is retained as a stored attribute on `MultiObjectiveScore` for display and reporting, but is excluded from the composite score and all Pareto dominance calculations.
@@ -263,7 +265,7 @@ Full-neighbourhood deterministic search with short-term memory. Each iteration e
 
 **Evaluation budget.** Each candidate swap costs one evaluation. A single TS iteration costs $\binom{S}{2}$ evaluations (≈ 435 for $S = 30$), so at budget 1,000 TS completes only ≈ 2 full iterations versus SA's 1,000 sequential steps. This makes TS the evaluation-heaviest algorithm per iteration but also the most informed per decision — the classic breadth-per-step vs. depth-over-time tradeoff. At higher budgets (50k–100k), TS accumulates enough iterations for the tabu memory to meaningfully shape the search trajectory.
 
-**Role.** TS serves as a *methodological control*: the Terra Mystica PCG literature (Sironi et al., 2019) demonstrated TS superiority over steepest-ascent HC for tabletop map generation. Including TS validates whether SA's stochastic escape mechanism is redundant with TS's deterministic memory, or whether the two approaches find qualitatively different solutions. If TS ≈ SA at convergence, SA's lower per-iteration cost makes it the strictly superior production algorithm.
+**Role.** TS serves as a *methodological control*: the Terra Mystica PCG literature (Sironi et al., 2019) demonstrated TS superiority over steepest-ascent HC for tabletop map generation. Including TS validates whether SA's stochastic escape mechanism is redundant with TS's deterministic memory, or whether the two approaches find qualitatively different solutions. If TS ≈ SA at convergence, SA's lower per-iteration cost makes it the preferred instrument for the main experiment.
 
 #### Random Search (RS) — Baseline
 
@@ -319,7 +321,7 @@ BO is excluded from the benchmark. The per-evaluation cost of TI4 map fitness (<
 
 The benchmark produces two complementary analysis tracks addressing different research audiences:
 
-**Track A — Production algorithm selection (scalar).** Applies the 5:5:3 composite scalarization to every algorithm's final solution (for NSGA-II, the Pareto-front member minimizing the composite score). Compares all six algorithms (RS, HC, SA, SGA, NSGA-II, TS) via scalar convergence curves, Friedman rank tests, and pairwise Wilcoxon signed-rank post-hocs with Holm-Bonferroni correction. Vargha-Delaney *A* effect sizes and bootstrap CIs quantify practical significance. Convergence analysis reports `evals_to_best` per algorithm per budget to identify the optimal compute allocation. Pipeline: `submit_all.sh` Phase 2 (`benchmark_engine.py`) and Phase 3 (`analyze_benchmark.py`, `plot_statistical_results.py`).
+**Track A — Methods justification (scalar).** Applies the 1:1:1 composite scalarization to every algorithm's final solution (for NSGA-II, the Pareto-front member minimizing the composite score). For NSGA-II, the Track A composite score is computed from the Pareto front member with minimum composite score at the end of the run; for scalar algorithms it is the run-best composite score observed at any point during the run. Compares all six algorithms (RS, HC, SA, SGA, NSGA-II, TS) via scalar convergence curves, Friedman rank tests, and pairwise Wilcoxon signed-rank post-hocs with Holm-Bonferroni correction. Vargha-Delaney *A* effect sizes and bootstrap CIs quantify practical significance. Convergence analysis reports `evals_to_best` per algorithm per budget to identify the optimal compute allocation. Pipeline: `submit_all.sh` Phase 2 (`benchmark_engine.py`) and Phase 3 (`analyze_benchmark.py`, `plot_statistical_results.py`).
 
 **Track B — Multi-objective landscape characterization (Pareto).** Evaluates NSGA-II's raw Pareto archives using Hypervolume (HV), Inverted Generational Distance Plus (IGD+), and Spacing — the gold-standard multi-objective quality indicators described in [`ACADEMIC_APPROACH.md`](ACADEMIC_APPROACH.md). This track answers the research question: *how rich is the fairness trade-off surface, and does NSGA-II meaningfully explore it?* HV and IGD+ do not require scalarization and therefore avoid the artificial disadvantage that collapsing a Pareto front to a single composite score imposes on a population-based algorithm. Implementation: `scripts/quality_indicators.py` processes the Pareto archives saved during Track A benchmark runs. Pipeline: `submit_all.sh` Phase 6.
 

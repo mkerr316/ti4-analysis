@@ -18,9 +18,9 @@ The Terra Mystica PCG literature (Grichshenko et al., 2020) demonstrated TS supe
 
 By including TS with a grid-tuned tenure coefficient k (θ = max(3, ⌈k·√S⌉), tuned on the same disjoint seed range as SA and NSGA-II), the benchmark produces one of three outcomes:
 
-1. **TS ≈ SA at convergence:** SA's stochastic escape is functionally equivalent to TS's deterministic memory for this problem class. SA's lower per-iteration cost (1 evaluation vs C(S,2)) makes it the strictly superior production algorithm.
+1. **TS ≈ SA at convergence:** SA's stochastic escape is functionally equivalent to TS's deterministic memory for this problem class. SA's lower per-iteration cost (1 evaluation vs C(S,2)) makes it the preferred instrument for the main experiment.
 
-2. **TS > SA at high budgets:** TS's exhaustive neighbourhood scan uncovers optima that SA's random walk misses. This would justify TS as the production algorithm despite higher per-step cost, or motivate a hybrid SA-TS approach.
+2. **TS > SA at high budgets:** TS's exhaustive neighbourhood scan uncovers optima that SA's random walk misses. This would justify TS as the preferred instrument despite higher per-step cost, or motivate a hybrid SA-TS approach.
 
 3. **SA > TS at all budgets:** SA's trajectory depth advantage (1,000 sequential steps vs TS's ≈ 2 full iterations at budget 1,000) is essential for this landscape's ruggedness. TS's breadth-per-step does not compensate for its shallow decision history.
 

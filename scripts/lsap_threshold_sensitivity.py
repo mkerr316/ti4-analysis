@@ -6,7 +6,7 @@ Evaluates whether Kendall's τ rank correlation between the baseline LSAP
 (sum of all positive local Iᵢ) and the thresholded LSAP (Σ max(0, Iᵢ − τ))
 is high enough to conclude the threshold is immaterial.
 
-Pre-registered decision rule (committed before Sapelo2 run):
+Pre-registered decision rule (committed before main experiment run):
   τ_kendall > 0.90  → threshold immaterial; baseline LSAP is defended.
   0.80 ≤ τ_kendall ≤ 0.90 → marginal divergence; report both, note limitation.
   τ_kendall < 0.80  → rankings structurally sensitive to threshold;

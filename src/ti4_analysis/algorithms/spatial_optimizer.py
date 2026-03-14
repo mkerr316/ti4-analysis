@@ -79,12 +79,12 @@ class MultiObjectiveScore:
         self.smooth_p = smooth_p
         self.smooth_k = smooth_k
 
-        # Weights sum to 1.0 for interpretability (ratios 5 : 5 : 3).
+        # Weights sum to 1.0 for interpretability (equal 1 : 1 : 1).
         if weights is None:
             weights = {
-                'morans_i':     5.0 / 13.0,
-                'jains_index':  5.0 / 13.0,
-                'lisa_penalty': 3.0 / 13.0,
+                'morans_i':     1.0 / 3.0,
+                'jains_index':  1.0 / 3.0,
+                'lisa_penalty': 1.0 / 3.0,
             }
 
         self.weights = weights

@@ -138,7 +138,7 @@ class TestLisaPenalty:
         per-node maximum positive local_I: max = (n-k-1)/(k+1) <= (n-2)/2 for
         any degree k >= 1, so LSAP <= n*(n-2)/2 <= n*(n-1).  Setting
         lisa_penalty to n*(n-1) maps the normalized term to exactly 1.0,
-        so the LISA contribution equals weight_lisa = 3/13 ≈ 0.231.
+        so the LISA contribution equals weight_lisa = 1/3.
         """
         n = 37
         base = MultiObjectiveScore(balance_gap=2.0, morans_i=0.0, jains_index=0.9,
@@ -148,7 +148,7 @@ class TestLisaPenalty:
                                         lisa_penalty=float(max_lisa), n_spatial=n)
 
         assert penalized.composite_score() > base.composite_score()
-        expected_delta = 3.0 / 13.0  # weight_lisa × 1.0
+        expected_delta = 1.0 / 3.0  # weight_lisa × 1.0 (equal weights 1:1:1)
         assert penalized.composite_score() == pytest.approx(
             base.composite_score() + expected_delta, rel=1e-6
         )

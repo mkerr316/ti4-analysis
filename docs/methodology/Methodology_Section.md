@@ -8,6 +8,8 @@
 
 > **Evaluation hierarchy:** Primary evaluation uses weight-independent Pareto quality indicators (Hypervolume, IGD+); the scalar weighted-sum composite serves as a secondary benchmark for single-objective comparators only. See §3.7 for Track A/B definitions.
 
+Anomaly tiles (asteroid fields, supernovae, nebulae, gravity rifts) are assigned under a non-adjacency constraint and frozen during optimization; all algorithms operate exclusively on the blue system tile swapping problem.
+
 Map optimization is framed as minimization of a weighted composite score over three objectives:
 
 $$S = w_1 \cdot (1 - J_{\min}) + w_2 \cdot \max\!\left(0,\ I - \mathbb{E}[I]\right) + w_3 \cdot \frac{\text{LSAP}}{n(n-1)} \quad \text{where } \mathbb{E}[I] = -\frac{1}{n-1}$$
@@ -16,7 +18,7 @@ The one-sided hinge penalizes only positive spatial autocorrelation above the nu
 
 In the above, $J_{\min} = \min(J_R, J_I)$ is the **Multi-Jain bottleneck** — Jain's Fairness Index computed independently on distance-weighted raw Resources and raw Influence, with the minimum (bottleneck) dimension determining the fairness term. This formulation is theoretically inspired by the bottleneck intuition in multi-resource allocation (Ghodsi et al., 2011): map fairness is limited by the *least fair* resource dimension; we do not claim the formal DRF axioms, which apply to allocation mechanisms, not fixed topologies.
 
-Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use a **5:5:3** ratio (Fairness : Clustering : Local Penalty) as a **Nominal Scalarization** — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation relies on weight-independent Pareto indicators (HV, IGD+); see §3.7. The nominal weights are $w_1 = 5/13$, $w_2 = 5/13$, $w_3 = 3/13$. **Weight-sensitivity analysis** (e.g. `analyze_benchmark.py --sensitivity`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations: equal weights, JFI-dominant, spatial-dominant, and LISA-dominant. When superiority holds across these configurations, the 5:5:3 choice is academically defensible as a nominal anchor. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
+Given the lack of consensus on optimal weighting for composite spatial indicators (Libório et al.), we use **equal weights 1:1:1** ($w_1 = w_2 = w_3 = 1/3$) for the full composite — a fixed target for single-objective methods (SA, TS, HC, SGA). Primary evaluation for the main experiment is condition comparison (spatial profile, JFI parity); weight-independent Pareto indicators (HV, IGD+) support methods justification; see §3.7 and Design_Rationale.md. **Weight-sensitivity analysis** (e.g. `analyze_benchmark.py --sensitivity`) tests whether algorithm rankings (e.g. SA vs HC) are robust to alternative weight configurations around 1:1:1. When superiority holds across configurations, the equal-weight choice is academically defensible. HV and IGD+ (Ishibuchi et al., 2015) are computed against an **empirical reference front** formed by merging all observed Pareto points across seeds when the true Pareto front is unknown.
 
 **Normalization vs. Weighting (Gen-0 Standardization)**  
 To resolve the mathematical heteroskedasticity inherent in the raw objectives, the engine strictly decouples *normalization* (unit equalization) from *weighting* (strategic preference). At initialization, the system samples $N=1,000$ uniformly random map configurations from the underlying permutation state space ($37! \approx 1.37 \times 10^{43}$) to compute the empirical standard deviation ($\sigma$) of each objective. These Gen-0 static $\sigma$ values are not arbitrary, human-chosen scalars; they are exact empirical properties of the unoptimized problem domain.  
@@ -42,16 +44,15 @@ The default table (community-calibrated "Joebrew" evaluator) uses weights 6, 6, 
 
 | Weight Configuration | Description | Kendall's τ vs. Baseline | p-value |
 | -------------------- | ----------- | ------------------------ | ------- |
-| flat_nearby | Uniform shelf extended to hop 3 | ⚠ PENDING_SAPELO2 | — |
-| steep_decay | Sharper drop at hop 3 | ⚠ PENDING_SAPELO2 | — |
-| linear | Monotone linear decay | ⚠ PENDING_SAPELO2 | — |
-| inverse_distance | Inverse-distance weights | ⚠ PENDING_SAPELO2 | — |
-| binary_reachable | Binary within-range indicator | ⚠ PENDING_SAPELO2 | — |
-| **Mean (all pairs)** | | ⚠ PENDING_SAPELO2 | — |
+| flat_nearby | Uniform shelf extended to hop 3 | ⚠ PENDING_MAIN_EXPERIMENT | — |
+| steep_decay | Sharper drop at hop 3 | ⚠ PENDING_MAIN_EXPERIMENT | — |
+| linear | Monotone linear decay | ⚠ PENDING_MAIN_EXPERIMENT | — |
+| inverse_distance | Inverse-distance weights | ⚠ PENDING_MAIN_EXPERIMENT | — |
+| binary_reachable | Binary within-range indicator | ⚠ PENDING_MAIN_EXPERIMENT | — |
+| **Mean (all pairs)** | | ⚠ PENDING_MAIN_EXPERIMENT | — |
 
-> **⚠ Pre-submission gate:** Replace all `⚠ PENDING_SAPELO2` cells with numbers
-> from `sensitivity_report.txt` before submitting. Run `grep -r "PENDING_SAPELO2" docs/`
-> to confirm zero matches prior to any submission attempt.
+> **⚠ Pre-submission gate:** Replace all placeholders with numbers from the main experiment before submitting. Run
+> `grep -rE "PENDING_MAIN_EXPERIMENT|⚠ INSERT|\[INSERT\]" docs/` — zero matches required.
 
 Source: `scripts/distance_weight_sensitivity.py`.
 
@@ -98,6 +99,8 @@ For one dimension, $J(\mathbf{x}) = (\sum x_i)^2 / (n \sum x_i^2)$, range $[1/n,
 - **TS (Tabu Search):** Full-neighbourhood search; best non-tabu move applied each iteration. Default tenure scales with neighbourhood size: $\max(3, \lceil 0.05 \cdot \binom{S}{2}\rceil)$ so that at saturation budgets (e.g. 500k evaluations) TS retains meaningful memory; optional override via $\lceil k\sqrt{S}\rceil$ (Glover, 1989). **Methodological control** (cf. Terra Mystica PCG literature).
 - **RS (Random Search):** Uniform random permutations; null baseline.
 
+SA accepts equal-fitness moves with probability 1 under the Metropolis criterion; HC, TS, and SGA use lexicographic tie-breaking (primary: composite score; secondary: $-J_{\max}$) on zero-delta moves. This behavioral difference on flat fitness regions is intentional and constitutes part of the architectural comparison.
+
 **Structural corrections (optional `--corrected-landscape`).** When enabled, the benchmark applies four corrections to the fitness landscape: (1) **Static Gen-0 normalization:** empirical standard deviations of the three objective terms are computed once from 1,000 random map permutations and used as fixed divisors for the entire run, eliminating variance dominance while keeping the landscape stationary. (2) **Smooth objectives:** the Multi-Jain bottleneck is replaced by a smooth L$_{-p}$ mean ($p=8$) and the Moran hinge by a softplus ($k=10$) to restore gradient continuity for SA. (3) **Local-variance LSAP:** each local Moran $I_i$ is scaled by $\sqrt{k_i}$ (node degree) so that edge and interior nodes have comparable scale. (4) **TS tenure** as above. These corrections are gated by the `--corrected-landscape` flag; when off, behaviour matches the nominal formulation for reproducibility.
 
 Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`).
@@ -126,7 +129,7 @@ Bayesian optimization is excluded (see `docs/bayesian_optimization_exclusion.md`
 
 ## 3.7 Analysis Tracks
 
-**Track A — Scalar (production algorithm selection).** The 5:5:3 composite is applied to every algorithm's final solution; for NSGA-II, the Pareto-front member with minimum composite is selected (a posteriori scalarization). All six algorithms (RS, HC, SA, SGA, NSGA-II, TS) are compared via **median and IQR**, **Friedman** test, **Wilcoxon** signed-rank pairwise with Holm–Bonferroni correction, **Vargha–Delaney A**, and **bootstrap 95% CIs** on median difference. We do not base claims on mean values; we report p-values and claim one algorithm outperforms another only when the corrected p-value is below the chosen significance level. **Empirical variance note (pre-registered, `variance_equalization_diagnostic.py`):** Across N = 1,000 random (Gen-0) configurations, the Moran's I hinge term carries approximately 92% of total weighted empirical variance, with JFI gap and LSAP sharing the remaining 8%. Track A scalar results are therefore predominantly driven by spatial autocorrelation reduction in the early phase of search; Track B (Hypervolume, weight-independent) remains the primary evaluation. The σ shift diagnostic confirms the favorable outcome: the Moran's I hinge term collapses to near-zero variance at convergence (σ ≈ 0.000), while JFI gap and LSAP retain meaningful variance (approximately 65% and 35% of weighted empirical variance respectively). The 5:5:3 weights are therefore operationally consistent in the optimized subspace where the benchmark results are reported; the Gen-0 Moran's I dominance is an early-search transient, not a persistent distortion of the objective landscape.
+**Track A — Scalar (production algorithm selection).** The 5:5:3 composite is applied to every algorithm's final solution; for NSGA-II, the Pareto-front member with minimum composite is selected (a posteriori scalarization). For NSGA-II, the Track A composite score is computed from the Pareto front member with minimum composite score at the end of the run; for scalar algorithms it is the run-best composite score observed at any point during the run. All six algorithms (RS, HC, SA, SGA, NSGA-II, TS) are compared via **median and IQR**, **Friedman** test, **Wilcoxon** signed-rank pairwise with Holm–Bonferroni correction, **Vargha–Delaney A**, and **bootstrap 95% CIs** on median difference. We do not base claims on mean values; we report p-values and claim one algorithm outperforms another only when the corrected p-value is below the chosen significance level. **Empirical variance note (pre-registered, `variance_equalization_diagnostic.py`):** Across N = 1,000 random (Gen-0) configurations, the Moran's I hinge term carries approximately 92% of total weighted empirical variance, with JFI gap and LSAP sharing the remaining 8%. Track A scalar results are therefore predominantly driven by spatial autocorrelation reduction in the early phase of search; Track B (Hypervolume, weight-independent) remains the primary evaluation. The σ shift diagnostic confirms the favorable outcome: the Moran's I hinge term collapses to near-zero variance at convergence (σ ≈ 0.000), while JFI gap and LSAP retain meaningful variance (approximately 65% and 35% of weighted empirical variance respectively). The 5:5:3 weights are therefore operationally consistent in the optimized subspace where the benchmark results are reported; the Gen-0 Moran's I dominance is an early-search transient, not a persistent distortion of the objective landscape.
 
 **Track B — Pareto (multi-objective quality).** NSGA-II's raw Pareto archives are evaluated with **Hypervolume (HV)**, **IGD+**, and **Spacing**. This is the primary evaluation for multi-objective performance and avoids scalarization. Scalar algorithms do not produce Pareto fronts and are compared only via Track A.
 
@@ -152,7 +155,19 @@ To empirically validate the necessity of the multi-objective formulation against
 
 ---
 
-## 3.9 Statistical methods and effect size
+## 3.9 Null hypotheses
+
+**RQ1:** $H_0$: the distribution of composite scores does not differ significantly across algorithms at any fixed evaluation budget (Friedman test, $\alpha = 0.05$).
+
+**RQ2:** $H_0$: NSGA-II's hypervolume does not exceed that of scalar algorithms under equal total evaluation budget (Wilcoxon signed-rank, one-tailed, Holm–Bonferroni corrected).
+
+**RQ3:** *(Trade-offs between balance gap and spatial distribution.)* This question is exploratory; no directional hypothesis is pre-specified. Results are reported as Spearman correlations between balance gap and spatial metrics across optimized solutions.
+
+**RQ4:** $H_0$: wall-clock time to reach a target composite score does not differ across algorithms (Friedman test).
+
+---
+
+## 3.10 Statistical methods and effect size
 
 **Effect size for paired comparisons.** For paired (before/after) or within-seed comparisons we report **Cohen's $d_z$**: the standardized mean difference of the *change*, $d_z = \bar{D} / s_D$, where $\bar{D}$ is the mean of the paired differences (after − before) and $s_D$ is their standard deviation (ddof=1). This is the appropriate effect size for the paired $t$-test and for repeated-measures designs (Lakens, 2013). Magnitude bands: $|d_z| < 0.2$ negligible; $0.2 \leq |d_z| < 0.5$ small; $0.5 \leq |d_z| < 0.8$ medium; $|d_z| \geq 0.8$ large.
 
