@@ -115,6 +115,8 @@ All three terms are normalized to [0, 1] before weighting:
 
 `balance_gap` (max − min player value) is retained as a stored attribute on `MultiObjectiveScore` for display and reporting, but is excluded from the composite score and all Pareto dominance calculations.
 
+**Structural corrections (`--corrected-landscape`).** The benchmark supports an optional corrected fitness landscape: static Gen-0 variance normalization (1,000 random maps), smooth JFI/hinge operators, $\sqrt{k_i}$-corrected LSAP, and TS default tenure $0.05 \cdot \binom{S}{2}$. Use `--corrected-landscape` in `benchmark_engine.py` to enable; see Methodology §3.4 and the plan in `.cursor/plans/`.
+
 > **Version note:** The benchmark results in Key Results were produced at git `2c252a6` with an earlier formula that used `balance_gap` (weight 1.0) as the distributional equity term in place of `1 − jains_index`. The methodology sections below describe the current code.
 
 ---

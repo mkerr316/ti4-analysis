@@ -50,9 +50,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--workers",     type=int, default=1,
                    help="Parallel workers (default: 1 = sequential)")
     p.add_argument("--ts-tenure",   type=int, default=None,
-                   help="TS tabu tenure (default: ceil(sqrt(S)))")
+                   help="TS tabu tenure (default: max(3, ceil(0.05*C(S,2)))).")
     p.add_argument("--ts-k",        type=float, default=None,
-                   help="TS tenure coefficient k: θ = max(3, ceil(k·√S)). Overrides --ts-tenure if set.")
+                   help="TS tenure coefficient k: θ = max(3, ceil(k·√S)). Overrides default if set.")
     p.add_argument("--sa-rate",     type=float, default=0.80,
                    help="SA initial_acceptance_rate (default: 0.80)")
     p.add_argument("--sa-min-temp", type=float, default=0.01,
@@ -84,6 +84,9 @@ def parse_args() -> argparse.Namespace:
                         "equally (B/k evaluations per vector) to ensure parity with "
                         "NSGA-II. The union of per-vector best solutions forms the "
                         "Aggregated SO Frontier for HV comparison.")
+    p.add_argument("--corrected-landscape", action="store_true",
+                   help="Enable structural corrections: Gen-0 static normalization, "
+                        "smooth objectives, sqrt(k_i) LSAP, TS tenure 0.05*C(S,2).")
     return p.parse_args()
 
 
@@ -224,7 +227,7 @@ def _run_seed(job):
     (seed, algos_list, budget, hc_iter, sa_iter, nsga_gen,
      players, sa_rate, sa_min_temp, nsga_pop, nsga_blob,
      nsga_mut, nsga_warm, ts_tenure, ts_k,
-     sga_blob, sga_mut, sga_warm, chains) = job
+     sga_blob, sga_mut, sga_warm, chains, corrected_landscape) = job
 
     algos = set(algos_list)
     n_chains = max(1, int(chains))
@@ -262,12 +265,11 @@ def _run_seed(job):
         """
         if not scores:
             return 0.0
-        pts = np.array([
-            (1.0 - float(s.jains_index),
-             max(0.0, float(s.morans_i) + 1.0 / max(1, s.n_spatial - 1)),
-             float(s.lisa_penalty) / max(1, s.n_spatial * (s.n_spatial - 1)))
-            for s in scores
-        ])
+        # Use objective_values_for_pareto() so HV matches dominance (smooth/raw consistent)
+        pts = np.array([s.objective_values_for_pareto() for s in scores])
+        # Third objective is raw lisa_penalty; normalize to [0,1] for ref point
+        n = max(1, scores[0].n_spatial) if scores else 1
+        pts[:, 2] = pts[:, 2] / max(1, n * (n - 1))
         # Clip to reference point — points outside ref contribute nothing
         pts = pts[np.all(pts < ref, axis=1)]
         if len(pts) == 0:
@@ -295,6 +297,7 @@ def _run_seed(job):
     from ti4_analysis.algorithms.hc_optimizer import hc_optimize
     from ti4_analysis.algorithms.spatial_optimizer import (
         improve_balance_spatial, evaluate_map_multiobjective,
+        compute_gen0_sigma,
     )
     from ti4_analysis.algorithms.nsga2_optimizer import nsga2_optimize
     from ti4_analysis.algorithms.sga_optimizer import sga_optimize
@@ -316,6 +319,24 @@ def _run_seed(job):
             include_pok=True,
             random_seed=seed,
         )
+
+        # Structural corrections: Gen-0 sigma + smooth + local-variance LSAP (frozen for run)
+        normalizer_sigma = None
+        eval_kw = {}
+        if corrected_landscape:
+            topo_gen0 = MapTopology.from_ti4_map(initial_map, evaluator)
+            normalizer_sigma = compute_gen0_sigma(
+                topo_gen0, evaluator, initial_map.copy(),
+                n_samples=1000, random_seed=seed + 99999,
+                use_local_variance_lisa=True,
+            )
+            eval_kw = dict(
+                normalizer_sigma=normalizer_sigma,
+                use_smooth_objectives=True,
+                smooth_p=8.0,
+                smooth_k=10.0,
+                use_local_variance_lisa=True,
+            )
 
         # Helper: incremental empirical Pareto front over MultiObjectiveScore
         def _update_front(front, score):
@@ -356,7 +377,9 @@ def _run_seed(job):
                 t0 = time.time()
                 topo = MapTopology.from_ti4_map(rs_map, evaluator)
                 fs_base = FastMapState.from_ti4_map(topo, rs_map, evaluator)
-                best_rs_score = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs_base)
+                best_rs_score = evaluate_map_multiobjective(
+                    rs_map, evaluator, fast_state=fs_base, **eval_kw
+                )
                 rs_front = [best_rs_score]
                 rng_rs = np.random.default_rng(run_seed)
                 S = len(topo.swappable_indices)
@@ -368,7 +391,9 @@ def _run_seed(job):
                     for i in range(S - 1, 0, -1):
                         if perm[i] != i:
                             fs.swap(perm[i], i)
-                    candidate = evaluate_map_multiobjective(rs_map, evaluator, fast_state=fs)
+                    candidate = evaluate_map_multiobjective(
+                        rs_map, evaluator, fast_state=fs, **eval_kw
+                    )
                     rs_front = _update_front(rs_front, candidate)
                     if candidate.composite_score() < best_rs_score.composite_score():
                         best_rs_score = candidate
@@ -392,6 +417,7 @@ def _run_seed(job):
                     iterations=hc_iter,
                     random_seed=run_seed,
                     verbose=False,
+                    **eval_kw,
                 )
                 rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
                                      evals_to_best=hc_etb, chain_id=chain_id))
@@ -415,6 +441,7 @@ def _run_seed(job):
                     min_temp=sa_min_temp,
                     random_seed=run_seed,
                     verbose=False,
+                    **eval_kw,
                 )
                 rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
                                      evals_to_best=sa_etb, chain_id=chain_id))
@@ -448,6 +475,10 @@ def _run_seed(job):
                     random_seed=run_seed,
                     verbose=False,
                     trajectory_callback=_nsga_cb,
+                    use_smooth_objectives=eval_kw.get("use_smooth_objectives", False),
+                    smooth_p=eval_kw.get("smooth_p", 8.0),
+                    smooth_k=eval_kw.get("smooth_k", 10.0),
+                    use_local_variance_lisa=eval_kw.get("use_local_variance_lisa", False),
                 )
                 best_score = min(front, key=lambda x: x[1].composite_score())[1]
                 rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
@@ -493,6 +524,7 @@ def _run_seed(job):
                     warm_fraction=sga_warm,
                     random_seed=run_seed,
                     verbose=False,
+                    **eval_kw,
                 )
                 sga_etb = 0
                 best_c = float('inf')
@@ -514,7 +546,7 @@ def _run_seed(job):
                 run_seed = seed * 1000 + chain_id
                 ts_map = initial_map.copy()
                 t0 = time.time()
-                ts_kw = {}
+                ts_kw = dict(**eval_kw)
                 if ts_k is not None:
                     ts_kw["tabu_tenure_coefficient"] = ts_k
                 elif ts_tenure is not None:
@@ -595,6 +627,7 @@ def main() -> int:
         "ts_tenure":   args.ts_tenure,
         "ts_k":        args.ts_k,
         "chains":      max(1, getattr(args, "chains", 1)),
+        "corrected_landscape": getattr(args, "corrected_landscape", False),
         "started_at": datetime.now().isoformat(),
     }
     try:
@@ -656,7 +689,8 @@ def main() -> int:
                     (seed, sorted(algos), budget, hc_iter, sa_iter, nsga_gen,
                      args.players, args.sa_rate, args.sa_min_temp, args.nsga_pop,
                      args.nsga_blob, args.nsga_mut, args.nsga_warm, args.ts_tenure, args.ts_k,
-                     args.sga_blob, args.sga_mut, args.sga_warm, n_chains)
+                     args.sga_blob, args.sga_mut, args.sga_warm, n_chains,
+                     getattr(args, "corrected_landscape", False))
                     for seed in range(args.base_seed, args.base_seed + args.seeds)
                 ]
 

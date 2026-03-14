@@ -295,9 +295,13 @@ class FastMapState:
         numer = float(z_dev @ (W @ z_dev))
         return (n / W_sum) * (numer / denom)
 
-    def lisa_penalty_swappable(self) -> float:
+    def lisa_penalty_swappable(self, use_local_variance: bool = False) -> float:
         """
         LSAP over swappable variables only (same domain as morans_i_swappable).
+
+        When use_local_variance is True, correct for edge-effect heteroskedasticity:
+        I_i(corrected) = (z_i * (Wz)_i * sqrt(k_i)) / m2, so the statistic has
+        comparable scale across nodes (Var((Wz)_i) ∝ 1/k_i => std ∝ 1/sqrt(k_i)).
         """
         conn = self.topology.swappable_connected_s_pos
         if len(conn) < 3:
@@ -310,6 +314,9 @@ class FastMapState:
             return 0.0
         Wz = self.topology.spatial_W_swappable @ z_dev
         local_I = z_dev * np.asarray(Wz).ravel() / m2
+        if use_local_variance and hasattr(self.topology, 'degree_swappable') and len(self.topology.degree_swappable) == n:
+            sqrt_k = np.sqrt(np.asarray(self.topology.degree_swappable, dtype=np.float32))
+            local_I = local_I * sqrt_k
         return float(local_I[local_I > 0].sum())
 
     def home_resources(self) -> np.ndarray:

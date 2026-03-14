@@ -97,6 +97,7 @@ class MapTopology:
     spatial_W: object = field(compare=False)           # scipy.sparse.csr_matrix (N_sys, N_sys)
     spatial_W_swappable: object = field(compare=False)  # scipy.sparse.csr_matrix (S_conn, S_conn)
     swappable_connected_s_pos: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.int32))  # (S_conn,)
+    degree_swappable: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.float32))  # (S_conn,) degree k_i per node for LSAP sqrt(k_i) correction
 
     @classmethod
     def from_ti4_map(cls, ti4_map: 'TI4Map', evaluator: Evaluator) -> 'MapTopology':
@@ -281,6 +282,9 @@ class MapTopology:
         spatial_W_swappable = scipy.sparse.diags(1.0 / row_sums_sw_kept) @ W_sw_kept
         spatial_W_swappable = scipy.sparse.csr_matrix(spatial_W_swappable, dtype=np.float32)
 
+        # Degree (row sum of binary W) per swappable-connected node for LSAP local-variance correction.
+        degree_swappable = row_sums_sw_kept.astype(np.float32)
+
         return cls(
             home_indices=home_indices,
             swappable_indices=swappable_indices,
@@ -294,4 +298,5 @@ class MapTopology:
             spatial_W=spatial_W,
             spatial_W_swappable=spatial_W_swappable,
             swappable_connected_s_pos=keep_sw_inds,
+            degree_swappable=degree_swappable,
         )

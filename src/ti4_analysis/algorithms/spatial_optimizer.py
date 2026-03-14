@@ -30,8 +30,15 @@ import numpy as np
 from .balance_engine import TI4Map, get_home_values, get_balance_gap, can_swap_system
 from .map_topology import MapTopology
 from .fast_map_state import FastMapState
+from .objectives_smooth import smooth_min_jain, softplus_hinge, DEFAULT_JAIN_SMOOTH_P, DEFAULT_SOFTPLUS_K
 from ..data.map_structures import Evaluator, MapSpace
 from ..spatial_stats.spatial_metrics import comprehensive_spatial_analysis
+
+# Keys for normalizer_sigma and raw_objective_terms
+NORM_KEY_HINGE = 'morans_hinge'
+NORM_KEY_JFI = 'jfi_gap'
+NORM_KEY_LISA = 'lisa_norm'
+NORM_EPS = 1e-10
 
 
 class MultiObjectiveScore:
@@ -55,6 +62,10 @@ class MultiObjectiveScore:
         weights: Optional[Dict[str, float]] = None,
         jfi_resources: float = 1.0,
         jfi_influence: float = 1.0,
+        normalizer_sigma: Optional[Dict[str, float]] = None,
+        use_smooth_objectives: bool = False,
+        smooth_p: float = DEFAULT_JAIN_SMOOTH_P,
+        smooth_k: float = DEFAULT_SOFTPLUS_K,
     ):
         self.balance_gap = balance_gap   # retained for display only
         self.morans_i = morans_i
@@ -63,6 +74,10 @@ class MultiObjectiveScore:
         self.jfi_influence = jfi_influence
         self.lisa_penalty = lisa_penalty
         self.n_spatial = max(1, n_spatial)  # guard against zero-division
+        self.normalizer_sigma = normalizer_sigma
+        self.use_smooth_objectives = use_smooth_objectives
+        self.smooth_p = smooth_p
+        self.smooth_k = smooth_k
 
         # Weights sum to 1.0 for interpretability (ratios 5 : 5 : 3).
         if weights is None:
@@ -105,15 +120,55 @@ class MultiObjectiveScore:
         n = self.n_spatial
         lisa_divisor = max(1, n * (n - 1))
         lisa_norm = self.lisa_penalty / lisa_divisor
-        # One-sided hinge: penalize only I > E[I] = -1/(n-1).
-        # Guard n-1 to avoid division by zero on degenerate n=1 cases,
-        # matching the robustness used in dominates() and diagnostics.
-        morans_hinge = max(0.0, self.morans_i + 1.0 / max(1, n - 1))
+        # Hinge: one-sided penalize I > E[I] = -1/(n-1). Smooth or hard.
+        hinge_raw = self.morans_i + 1.0 / max(1, n - 1)
+        if self.use_smooth_objectives:
+            morans_hinge = softplus_hinge(hinge_raw, self.smooth_k)
+            jfi_term = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
+        else:
+            morans_hinge = max(0.0, hinge_raw)
+            jfi_term = 1.0 - self.jains_index
+        # Optional Gen-0 variance normalization (stationary landscape).
+        if self.normalizer_sigma:
+            sigma_h = max(self.normalizer_sigma.get(NORM_KEY_HINGE, 1.0), NORM_EPS)
+            sigma_j = max(self.normalizer_sigma.get(NORM_KEY_JFI, 1.0), NORM_EPS)
+            sigma_l = max(self.normalizer_sigma.get(NORM_KEY_LISA, 1.0), NORM_EPS)
+            morans_hinge = morans_hinge / sigma_h
+            jfi_term = jfi_term / sigma_j
+            lisa_norm = lisa_norm / sigma_l
         return (
             self.weights['morans_i']     * morans_hinge +
-            self.weights['jains_index']  * (1.0 - self.jains_index) +
+            self.weights['jains_index']  * jfi_term +
             self.weights['lisa_penalty'] * lisa_norm
         )
+
+    def raw_objective_terms(self) -> Tuple[float, float, float]:
+        """
+        Raw normalized terms (hinge, jfi_gap, lisa_norm) with same divisors as composite.
+        Used for Gen-0 sigma computation. No smooth operators; no normalizer_sigma applied.
+        """
+        n = self.n_spatial
+        lisa_divisor = max(1, n * (n - 1))
+        lisa_norm = self.lisa_penalty / lisa_divisor
+        morans_hinge = max(0.0, self.morans_i + 1.0 / max(1, n - 1))
+        jfi_gap = 1.0 - self.jains_index
+        return (morans_hinge, jfi_gap, lisa_norm)
+
+    def objective_values_for_pareto(self) -> Tuple[float, float, float]:
+        """
+        Three objectives (minimize) in the form used for Pareto dominance and crowding.
+        Respects use_smooth_objectives so NSGA-II stays consistent with Track A composite.
+        Returns (f1, f2, f3) = (JFI gap, Moran hinge term, LSAP).
+        """
+        n = max(1, self.n_spatial - 1)
+        if self.use_smooth_objectives:
+            f1 = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
+            f2 = softplus_hinge(self.morans_i + 1.0 / n, self.smooth_k)
+        else:
+            f1 = 1.0 - self.jains_index
+            f2 = max(0.0, self.morans_i + 1.0 / n)
+        f3 = self.lisa_penalty
+        return (f1, f2, f3)
 
     def lex_key(self) -> tuple:
         """
@@ -141,18 +196,25 @@ class MultiObjectiveScore:
 
     def dominates(self, other: 'MultiObjectiveScore') -> bool:
         """
-        Pareto dominance over the canonical 3 objectives (all minimized):
-          1 − jains_index, abs(morans_i), lisa_penalty.
-
-        Returns True if self is better-or-equal on all and strictly better on at least one.
+        Pareto dominance over the canonical 3 objectives (all minimized).
+        Uses same smooth/hard formulae as composite_score when use_smooth_objectives is set.
         """
-        a_jfi = 1.0 - self.jains_index;    b_jfi = 1.0 - other.jains_index
-        a_mi  = max(0.0, self.morans_i  + 1.0 / max(1, self.n_spatial  - 1))
-        b_mi  = max(0.0, other.morans_i + 1.0 / max(1, other.n_spatial - 1))
-        a_lp  = self.lisa_penalty;          b_lp  = other.lisa_penalty
-
+        n_self = max(1, self.n_spatial - 1)
+        n_other = max(1, other.n_spatial - 1)
+        if self.use_smooth_objectives:
+            a_jfi = 1.0 - smooth_min_jain(self.jfi_resources, self.jfi_influence, self.smooth_p)
+            b_jfi = 1.0 - smooth_min_jain(other.jfi_resources, other.jfi_influence, other.smooth_p)
+            a_mi = softplus_hinge(self.morans_i + 1.0 / n_self, self.smooth_k)
+            b_mi = softplus_hinge(other.morans_i + 1.0 / n_other, other.smooth_k)
+        else:
+            a_jfi = 1.0 - self.jains_index
+            b_jfi = 1.0 - other.jains_index
+            a_mi = max(0.0, self.morans_i + 1.0 / n_self)
+            b_mi = max(0.0, other.morans_i + 1.0 / n_other)
+        a_lp = self.lisa_penalty
+        b_lp = other.lisa_penalty
         all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
-        any_lt  = (a_jfi <  b_jfi) or  (a_mi <  b_mi) or  (a_lp <  b_lp)
+        any_lt = (a_jfi < b_jfi) or (a_mi < b_mi) or (a_lp < b_lp)
         return all_leq and any_lt
 
     def __str__(self) -> str:
@@ -171,6 +233,11 @@ def evaluate_map_multiobjective(
     evaluator: Evaluator,
     weights: Optional[Dict[str, float]] = None,
     fast_state: Optional[FastMapState] = None,
+    normalizer_sigma: Optional[Dict[str, float]] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = DEFAULT_JAIN_SMOOTH_P,
+    smooth_k: float = DEFAULT_SOFTPLUS_K,
+    use_local_variance_lisa: bool = False,
 ) -> MultiObjectiveScore:
     """
     Evaluate a map across all objectives.
@@ -182,6 +249,11 @@ def evaluate_map_multiobjective(
         fast_state: Optional pre-initialized FastMapState. When provided, all three
             metrics (balance_gap, Moran's I, Jain's Index) are computed via vectorized
             fast paths — ti4_map is not read. When None, falls back to comprehensive_spatial_analysis().
+        normalizer_sigma: Optional frozen Gen-0 stds (morans_hinge, jfi_gap, lisa_norm) for stationary composite.
+        use_smooth_objectives: If True, use smooth min (JFI) and softplus (hinge) in composite and dominance.
+        smooth_p: Exponent for smooth Jain (L_{-p} mean). Default 8.
+        smooth_k: Temperature for softplus hinge. Default 10, clamped [5, 20].
+        use_local_variance_lisa: If True, LSAP uses sqrt(k_i) correction in lisa_penalty_swappable.
 
     Returns:
         MultiObjectiveScore with all metrics
@@ -193,7 +265,7 @@ def evaluate_map_multiobjective(
         jains_index    = fast_state.jains_index()
         jfi_resources  = fast_state.jfi_resources()
         jfi_influence  = fast_state.jfi_influence()
-        lisa_penalty   = fast_state.lisa_penalty_swappable()
+        lisa_penalty   = fast_state.lisa_penalty_swappable(use_local_variance=use_local_variance_lisa)
         n_spatial      = max(1, len(fast_state.topology.swappable_connected_s_pos))
     else:
         # Slow path: per-dimension JFI unavailable; fall back to combined scalar.
@@ -210,7 +282,72 @@ def evaluate_map_multiobjective(
     return MultiObjectiveScore(
         balance_gap, morans_i, jains_index, lisa_penalty, n_spatial, weights,
         jfi_resources=jfi_resources, jfi_influence=jfi_influence,
+        normalizer_sigma=normalizer_sigma,
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
     )
+
+
+def compute_gen0_sigma(
+    topology: MapTopology,
+    evaluator: Evaluator,
+    ti4_map_template: TI4Map,
+    n_samples: int = 1000,
+    random_seed: Optional[int] = None,
+    weights: Optional[Dict[str, float]] = None,
+    use_local_variance_lisa: bool = False,
+    n_swaps_randomize: int = 80,
+) -> Dict[str, float]:
+    """
+    Compute frozen empirical standard deviations of the three objective terms
+    from a Gen-0 (uniformly random) sample of map permutations. Used for
+    stationary variance normalization so the fitness landscape does not
+    shift during optimization.
+
+    Args:
+        topology: Pre-built topology for the map template.
+        evaluator: Balance evaluator.
+        ti4_map_template: Template map; copies are randomized for each sample.
+        n_samples: Number of random permutations to sample (default 1000).
+        random_seed: Optional seed for reproducibility.
+        weights: Objective weights (for score construction; default 5:5:3).
+        use_local_variance_lisa: If True, LSAP uses sqrt(k_i) correction (match benchmark).
+        n_swaps_randomize: Random 2-swaps per copy to randomize (default 80).
+
+    Returns:
+        Dict with keys NORM_KEY_HINGE, NORM_KEY_JFI, NORM_KEY_LISA and values
+        empirical std (at least NORM_EPS to avoid division by zero).
+    """
+    if random_seed is not None:
+        random.seed(random_seed)
+    swappable_indices = list(range(len(topology.swappable_indices)))
+    if len(swappable_indices) < 2:
+        return {NORM_KEY_HINGE: 1.0, NORM_KEY_JFI: 1.0, NORM_KEY_LISA: 1.0}
+    terms_list: List[Tuple[float, float, float]] = []
+    for _ in range(n_samples):
+        map_copy = ti4_map_template.copy()
+        swappable_spaces = [map_copy.spaces[i] for i in topology.swappable_indices]
+        for _ in range(n_swaps_randomize):
+            s1, s2 = random.sample(swappable_indices, 2)
+            swappable_spaces[s1].system, swappable_spaces[s2].system = (
+                swappable_spaces[s2].system, swappable_spaces[s1].system,
+            )
+        fast_state = FastMapState.from_ti4_map(topology, map_copy, evaluator)
+        score = evaluate_map_multiobjective(
+            map_copy, evaluator, weights=weights, fast_state=fast_state,
+            use_local_variance_lisa=use_local_variance_lisa,
+        )
+        terms_list.append(score.raw_objective_terms())
+    arr = np.array(terms_list)
+    sigma_h = float(np.std(arr[:, 0]))
+    sigma_j = float(np.std(arr[:, 1]))
+    sigma_l = float(np.std(arr[:, 2]))
+    return {
+        NORM_KEY_HINGE: max(sigma_h, NORM_EPS),
+        NORM_KEY_JFI: max(sigma_j, NORM_EPS),
+        NORM_KEY_LISA: max(sigma_l, NORM_EPS),
+    }
 
 
 def improve_balance_spatial(
@@ -223,6 +360,11 @@ def improve_balance_spatial(
     cooling_rate: float = 0.99,
     min_temp: float = 0.01,
     initial_acceptance_rate: float = 0.80,
+    normalizer_sigma: Optional[Dict[str, float]] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = DEFAULT_JAIN_SMOOTH_P,
+    smooth_k: float = DEFAULT_SOFTPLUS_K,
+    use_local_variance_lisa: bool = False,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
     Improve map balance using Simulated Annealing over a multi-objective
@@ -266,7 +408,14 @@ def improve_balance_spatial(
         raise ValueError("Not enough swappable spaces to optimize")
 
     # Initial evaluation
-    current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+    current_score = evaluate_map_multiobjective(
+        ti4_map, evaluator, weights, fast_state,
+        normalizer_sigma=normalizer_sigma,
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
+        use_local_variance_lisa=use_local_variance_lisa,
+    )
     best_score = current_score
     best_eval = 0
     history = [(0, current_score)]
@@ -279,7 +428,14 @@ def improve_balance_spatial(
     for _ in range(10):
         s1, s2 = random.sample(sample_indices, 2)
         fast_state.swap(s1, s2)
-        probe = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+        probe = evaluate_map_multiobjective(
+            ti4_map, evaluator, weights, fast_state,
+            normalizer_sigma=normalizer_sigma,
+            use_smooth_objectives=use_smooth_objectives,
+            smooth_p=smooth_p,
+            smooth_k=smooth_k,
+            use_local_variance_lisa=use_local_variance_lisa,
+        )
         delta = probe.composite_score() - current_score.composite_score()
         if delta > 0:
             sample_deltas.append(delta)
@@ -311,7 +467,14 @@ def improve_balance_spatial(
         fast_state.swap(s1, s2)
         space1.system, space2.system = space2.system, space1.system
 
-        new_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+        new_score = evaluate_map_multiobjective(
+            ti4_map, evaluator, weights, fast_state,
+            normalizer_sigma=normalizer_sigma,
+            use_smooth_objectives=use_smooth_objectives,
+            smooth_p=smooth_p,
+            smooth_k=smooth_k,
+            use_local_variance_lisa=use_local_variance_lisa,
+        )
         delta = new_score.composite_score() - current_score.composite_score()
 
         if delta < 0:

@@ -55,6 +55,11 @@ def sga_optimize(
     random_seed: Optional[int] = None,
     verbose: bool = True,
     weights: Optional[dict] = None,
+    normalizer_sigma: Optional[dict] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = 8.0,
+    smooth_k: float = 10.0,
+    use_local_variance_lisa: bool = False,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
     Single-objective GA with BFS-blob OX1 crossover for TI4 map balance.
@@ -88,9 +93,18 @@ def sga_optimize(
     if S < 2:
         raise ValueError("Not enough swappable spaces for SGA (need >= 2)")
 
+    eval_kw = dict(
+        weights=weights,
+        normalizer_sigma=normalizer_sigma,
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
+        use_local_variance_lisa=use_local_variance_lisa,
+    )
     # ── Generation 0: seeding (shared with NSGA-II) ───────────────────────
     population = _seed_population(
-        ti4_map, topology, evaluator, population_size, warm_fraction, rng, verbose
+        ti4_map, topology, evaluator, population_size, warm_fraction, rng, verbose,
+        seed_eval_kwargs=eval_kw,
     )
 
     # Patch weights onto seed-population scores so composite_score() and
@@ -136,7 +150,7 @@ def sga_optimize(
                 pa.map, topology, child_systems, evaluator
             )
             child_score = evaluate_map_multiobjective(
-                child_map, evaluator, weights, fast_state=child_state
+                child_map, evaluator, fast_state=child_state, **eval_kw
             )
             offspring.append(Individual(
                 map=child_map, fast_state=child_state, score=child_score

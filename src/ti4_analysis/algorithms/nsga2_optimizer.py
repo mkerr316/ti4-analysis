@@ -202,22 +202,11 @@ def _build_offspring(parent_map, topology, offspring_systems, evaluator):
 
 def _nsga2_dominates(a: Individual, b: Individual) -> bool:
     """
-    Strict Pareto dominance over 3 objectives (all minimized):
-      1 − jains_index, abs(morans_i), lisa_penalty.
-
-    Returns True if a is better-or-equal on all objectives and strictly
-    better on at least one.
+    Strict Pareto dominance over 3 objectives (all minimized).
+    Delegates to MultiObjectiveScore.dominates() so smooth/raw and hinge
+    definitions stay consistent with Track A composite.
     """
-    a_jfi = 1.0 - a.score.jains_index
-    a_mi  = abs(a.score.morans_i)
-    a_lp  = a.score.lisa_penalty
-    b_jfi = 1.0 - b.score.jains_index
-    b_mi  = abs(b.score.morans_i)
-    b_lp  = b.score.lisa_penalty
-
-    all_leq = (a_jfi <= b_jfi) and (a_mi <= b_mi) and (a_lp <= b_lp)
-    any_lt  = (a_jfi < b_jfi)  or  (a_mi < b_mi)  or  (a_lp < b_lp)
-    return all_leq and any_lt
+    return a.score.dominates(b.score)
 
 
 # ── NSGA-II sorting ───────────────────────────────────────────────────────────
@@ -287,10 +276,11 @@ def _crowding_distance(front: List[Individual]) -> None:
             ind.crowding_distance = float('inf')
         return
 
+    # Use objective_values_for_pareto() so smooth/raw matches Track A and dominance.
     objective_getters = [
-        lambda ind: 1.0 - ind.score.jains_index,  # distributive equity
-        lambda ind: abs(ind.score.morans_i),
-        lambda ind: ind.score.lisa_penalty,
+        lambda ind: ind.score.objective_values_for_pareto()[0],  # JFI gap
+        lambda ind: ind.score.objective_values_for_pareto()[1],  # Moran hinge term
+        lambda ind: ind.score.objective_values_for_pareto()[2],  # LSAP
     ]
 
     for getter in objective_getters:
@@ -337,6 +327,7 @@ def _seed_population(
     warm_fraction: float,
     rng: random.Random,
     verbose: bool,
+    seed_eval_kwargs: Optional[dict] = None,
 ) -> List[Individual]:
     """
     Gen 0 is cold-start only (n_warm forced to 0) to preserve Pareto diversity.
@@ -345,6 +336,7 @@ def _seed_population(
     n_warm = 0  # No warm starts: pure random permutations for unbiased Pareto exploration
     n_cold = pop_size
     population: List[Individual] = []
+    eval_kw = seed_eval_kwargs or {}
 
     base_systems = [ti4_map.spaces[i].system for i in topology.swappable_indices]
 
@@ -355,7 +347,7 @@ def _seed_population(
         shuffled = base_systems.copy()
         rng.shuffle(shuffled)
         new_map, state = _build_offspring(ti4_map, topology, shuffled, evaluator)
-        score = evaluate_map_multiobjective(new_map, evaluator, fast_state=state)
+        score = evaluate_map_multiobjective(new_map, evaluator, fast_state=state, **eval_kw)
         population.append(Individual(map=new_map, fast_state=state, score=score))
 
     return population
@@ -374,6 +366,10 @@ def nsga2_optimize(
     random_seed: Optional[int] = None,
     verbose: bool = True,
     trajectory_callback: Optional[Callable[[int, List[MultiObjectiveScore]], None]] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = 8.0,
+    smooth_k: float = 10.0,
+    use_local_variance_lisa: bool = False,
 ) -> List[Tuple[TI4Map, MultiObjectiveScore]]:
     """
     NSGA-II with BFS-blob OX1 crossover for TI4 map Pareto optimisation.
@@ -408,9 +404,16 @@ def nsga2_optimize(
     if S < 2:
         raise ValueError("Not enough swappable spaces for NSGA-II (need ≥ 2)")
 
+    seed_eval_kw = dict(
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
+        use_local_variance_lisa=use_local_variance_lisa,
+    )
     # ── Generation 0: seeding ────────────────────────────────────────────────
     population = _seed_population(
-        ti4_map, topology, evaluator, population_size, warm_fraction, rng, verbose
+        ti4_map, topology, evaluator, population_size, warm_fraction, rng, verbose,
+        seed_eval_kwargs=seed_eval_kw,
     )
 
     fronts = _fast_nondominated_sort(population)
@@ -451,7 +454,7 @@ def nsga2_optimize(
                 pa.map, topology, child_systems, evaluator
             )
             child_score = evaluate_map_multiobjective(
-                child_map, evaluator, fast_state=child_state
+                child_map, evaluator, fast_state=child_state, **seed_eval_kw
             )
             offspring.append(Individual(
                 map=child_map, fast_state=child_state, score=child_score
@@ -482,20 +485,21 @@ def nsga2_optimize(
 
         if verbose and (gen % 10 == 0 or gen == generations):
             rank0 = [ind for ind in population if ind.rank == 0]
-            best_jfi  = max(ind.score.jains_index    for ind in rank0) if rank0 else 0.0
-            best_mi   = min(abs(ind.score.morans_i)  for ind in rank0) if rank0 else float('inf')
-            best_lisa = min(ind.score.lisa_penalty   for ind in rank0) if rank0 else float('inf')
+            objs = [ind.score.objective_values_for_pareto() for ind in rank0] if rank0 else []
+            best_jfi  = max(1.0 - o[0] for o in objs) if objs else 0.0   # JFI = 1 - gap
+            best_mi   = min(o[1] for o in objs) if objs else float('inf')  # hinge
+            best_lisa = min(o[2] for o in objs) if objs else float('inf')
             print(
                 f"Gen {gen:>{len(str(generations))}}/{generations}: "
                 f"{len(rank0):>3} Pareto-front members | "
                 f"best JFI={best_jfi:.3f} | "
-                f"best |I|={best_mi:.3f} | "
+                f"best hinge={best_mi:.3f} | "
                 f"best LISA={best_lisa:.3f}"
             )
 
     # ── Return Pareto front sorted by JFI descending (highest equity first) ──
     pareto_front = [ind for ind in population if ind.rank == 0]
-    pareto_front.sort(key=lambda ind: ind.score.jains_index, reverse=True)
+    pareto_front.sort(key=lambda ind: ind.score.objective_values_for_pareto()[0])  # ascending gap = best JFI first
 
     if verbose:
         print(f"\nFinal Pareto front: {len(pareto_front)} solutions")

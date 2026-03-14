@@ -153,6 +153,17 @@ class TestLisaPenalty:
             base.composite_score() + expected_delta, rel=1e-6
         )
 
+    def test_lisa_penalty_swappable_local_variance_runs(self):
+        """lisa_penalty_swappable(use_local_variance=True) runs and returns non-negative."""
+        ti4_map, evaluator = _make_four_system_map(r_high=5, r_low=1)
+        topology = MapTopology.from_ti4_map(ti4_map, evaluator)
+        fast_state = FastMapState.from_ti4_map(topology, ti4_map, evaluator)
+        penalty_global = fast_state.lisa_penalty_swappable(use_local_variance=False)
+        penalty_local = fast_state.lisa_penalty_swappable(use_local_variance=True)
+        assert penalty_global >= 0 and penalty_local >= 0
+        # With sqrt(k_i) correction, scale can differ; both should be finite
+        assert np.isfinite(penalty_global) and np.isfinite(penalty_local)
+
     def test_lisa_penalty_zero_single_system(self):
         """A map with fewer than 3 systems returns 0 (guarded by n < 3 check)."""
         home1 = MapSpace(HexCoord(0, 0, 0), MapSpaceType.HOME)

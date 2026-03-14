@@ -40,8 +40,14 @@ def improve_balance_tabu(
     verbose: bool = True,
     tabu_tenure: Optional[int] = None,
     tabu_tenure_coefficient: Optional[float] = None,
+    tabu_tenure_neighborhood_fraction: Optional[float] = None,
     use_attribute_tabu: bool = False,
     stagnation_threshold: Optional[int] = None,
+    normalizer_sigma: Optional[Dict[str, float]] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = 8.0,
+    smooth_k: float = 10.0,
+    use_local_variance_lisa: bool = False,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]], int, int]:
     """
     Improve map balance using Tabu Search over the composite fitness.
@@ -89,17 +95,28 @@ def improve_balance_tabu(
     swap_pairs = list(combinations(range(S), 2))
     neighborhood_size = len(swap_pairs)
 
-    # Resolve tenure: fixed int > coefficient k > default k=1
+    # Resolve tenure: fixed int > coefficient k > neighborhood fraction > default 0.05 * C(S,2)
     if tabu_tenure is not None:
         tenure = int(tabu_tenure)
     elif tabu_tenure_coefficient is not None:
         k = float(tabu_tenure_coefficient)
         tenure = max(3, int(_math.ceil(k * (S ** 0.5))))
+    elif tabu_tenure_neighborhood_fraction is not None:
+        alpha = float(tabu_tenure_neighborhood_fraction)
+        tenure = max(3, int(_math.ceil(alpha * neighborhood_size)))
     else:
-        tenure = max(3, int(_math.ceil(S ** 0.5)))
+        # Default: scale with neighborhood size (plan: 0.05 * C(S,2))
+        tenure = max(3, int(_math.ceil(0.05 * neighborhood_size)))
     tabu_tenure = tenure
 
-    current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+    eval_kw = dict(
+        normalizer_sigma=normalizer_sigma,
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
+        use_local_variance_lisa=use_local_variance_lisa,
+    )
+    current_score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state, **eval_kw)
     best_score = current_score
     best_lex = best_score.lex_key()
     best_etb = 0
@@ -135,7 +152,7 @@ def improve_balance_tabu(
         for s_i, s_j in swap_pairs:
             fast_state.swap(s_i, s_j)
             candidate = evaluate_map_multiobjective(
-                ti4_map, evaluator, weights, fast_state
+                ti4_map, evaluator, weights, fast_state, **eval_kw
             )
             c_lex = candidate.lex_key()
             total_evals += 1
@@ -220,7 +237,7 @@ def improve_balance_tabu(
                 )
             if total_evals < max_evaluations:
                 current_score = evaluate_map_multiobjective(
-                    ti4_map, evaluator, weights, fast_state
+                    ti4_map, evaluator, weights, fast_state, **eval_kw
                 )
                 total_evals += 1
                 history.append((total_evals, current_score))
@@ -249,7 +266,7 @@ def improve_balance_tabu(
         for s_i, s_j in partial_pairs:
             fast_state.swap(s_i, s_j)
             candidate = evaluate_map_multiobjective(
-                ti4_map, evaluator, weights, fast_state
+                ti4_map, evaluator, weights, fast_state, **eval_kw
             )
             c_lex = candidate.lex_key()
             total_evals += 1

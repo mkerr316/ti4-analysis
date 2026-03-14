@@ -29,6 +29,11 @@ def hc_optimize(
     weights: Optional[Dict[str, float]] = None,
     random_seed: Optional[int] = None,
     verbose: bool = False,
+    normalizer_sigma: Optional[Dict[str, float]] = None,
+    use_smooth_objectives: bool = False,
+    smooth_p: float = 8.0,
+    smooth_k: float = 10.0,
+    use_local_variance_lisa: bool = False,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]], int]:
     """
     Hill-climb on the composite score (strict improvement only).
@@ -59,12 +64,19 @@ def hc_optimize(
     swappable_spaces = [ti4_map.spaces[i] for i in topology.swappable_indices]
     sample_indices = list(range(len(swappable_spaces)))
 
+    eval_kw = dict(
+        normalizer_sigma=normalizer_sigma,
+        use_smooth_objectives=use_smooth_objectives,
+        smooth_p=smooth_p,
+        smooth_k=smooth_k,
+        use_local_variance_lisa=use_local_variance_lisa,
+    )
     if len(swappable_spaces) < 2:
-        score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state)
+        score = evaluate_map_multiobjective(ti4_map, evaluator, weights, fast_state, **eval_kw)
         return score, [(0, score)], 0
 
     current_score = evaluate_map_multiobjective(
-        ti4_map, evaluator, weights, fast_state
+        ti4_map, evaluator, weights, fast_state, **eval_kw
     )
     best_score = current_score
     best_eval = 0
@@ -79,7 +91,7 @@ def hc_optimize(
         space1.system, space2.system = space2.system, space1.system
 
         new_score = evaluate_map_multiobjective(
-            ti4_map, evaluator, weights, fast_state
+            ti4_map, evaluator, weights, fast_state, **eval_kw
         )
 
         if new_score.lex_key() < current_score.lex_key():
