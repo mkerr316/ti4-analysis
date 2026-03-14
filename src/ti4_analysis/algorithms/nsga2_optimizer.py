@@ -369,7 +369,7 @@ def nsga2_optimize(
     use_smooth_objectives: bool = False,
     smooth_p: float = 8.0,
     smooth_k: float = 10.0,
-    use_local_variance_lisa: bool = False,
+    use_local_variance_lisa: bool = True,
 ) -> List[Tuple[TI4Map, MultiObjectiveScore]]:
     """
     NSGA-II with BFS-blob OX1 crossover for TI4 map Pareto optimisation.

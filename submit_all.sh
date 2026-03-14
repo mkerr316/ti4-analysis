@@ -247,6 +247,22 @@ else
     echo "--- Phase 6: SKIPPED (no pareto_archives directory found) ---"
 fi
 
+# ── Phase 6b: Cross-method IGD (scalar terminal states vs reference front) ───
+if [ -n "$ARCHIVE_DIR" ]; then
+    RUN_DIR=$(dirname "$ARCHIVE_DIR")
+    if [ -f "$RUN_DIR/results.csv" ]; then
+        echo ""
+        echo "--- Phase 6b: Cross-method IGD (scalar vs Pareto reference) ---"
+        $PYTHON_BIN scripts/cross_method_igd.py --run-dir "$RUN_DIR" --report
+    else
+        echo ""
+        echo "--- Phase 6b: SKIPPED (no results.csv in run dir) ---"
+    fi
+else
+    echo ""
+    echo "--- Phase 6b: SKIPPED (no pareto_archives directory) ---"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "============================================================"

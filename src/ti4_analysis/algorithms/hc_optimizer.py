@@ -33,7 +33,7 @@ def hc_optimize(
     use_smooth_objectives: bool = False,
     smooth_p: float = 8.0,
     smooth_k: float = 10.0,
-    use_local_variance_lisa: bool = False,
+    use_local_variance_lisa: bool = True,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]], int]:
     """
     Hill-climb on the composite score (strict improvement only).

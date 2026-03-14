@@ -237,7 +237,7 @@ def evaluate_map_multiobjective(
     use_smooth_objectives: bool = False,
     smooth_p: float = DEFAULT_JAIN_SMOOTH_P,
     smooth_k: float = DEFAULT_SOFTPLUS_K,
-    use_local_variance_lisa: bool = False,
+    use_local_variance_lisa: bool = True,
 ) -> MultiObjectiveScore:
     """
     Evaluate a map across all objectives.
@@ -253,7 +253,7 @@ def evaluate_map_multiobjective(
         use_smooth_objectives: If True, use smooth min (JFI) and softplus (hinge) in composite and dominance.
         smooth_p: Exponent for smooth Jain (L_{-p} mean). Default 8.
         smooth_k: Temperature for softplus hinge. Default 10, clamped [5, 20].
-        use_local_variance_lisa: If True, LSAP uses sqrt(k_i) correction in lisa_penalty_swappable.
+        use_local_variance_lisa: If True (default), LSAP uses sqrt(k_i) correction in lisa_penalty_swappable.
 
     Returns:
         MultiObjectiveScore with all metrics
@@ -296,7 +296,7 @@ def compute_gen0_sigma(
     n_samples: int = 1000,
     random_seed: Optional[int] = None,
     weights: Optional[Dict[str, float]] = None,
-    use_local_variance_lisa: bool = False,
+    use_local_variance_lisa: bool = True,
     n_swaps_randomize: int = 80,
 ) -> Dict[str, float]:
     """
@@ -312,7 +312,7 @@ def compute_gen0_sigma(
         n_samples: Number of random permutations to sample (default 1000).
         random_seed: Optional seed for reproducibility.
         weights: Objective weights (for score construction; default 5:5:3).
-        use_local_variance_lisa: If True, LSAP uses sqrt(k_i) correction (match benchmark).
+        use_local_variance_lisa: If True (default), LSAP uses sqrt(k_i) correction (match benchmark).
         n_swaps_randomize: Random 2-swaps per copy to randomize (default 80).
 
     Returns:
@@ -364,7 +364,7 @@ def improve_balance_spatial(
     use_smooth_objectives: bool = False,
     smooth_p: float = DEFAULT_JAIN_SMOOTH_P,
     smooth_k: float = DEFAULT_SOFTPLUS_K,
-    use_local_variance_lisa: bool = False,
+    use_local_variance_lisa: bool = True,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
     Improve map balance using Simulated Annealing over a multi-objective

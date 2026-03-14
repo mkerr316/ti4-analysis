@@ -478,7 +478,7 @@ def _run_seed(job):
                     use_smooth_objectives=eval_kw.get("use_smooth_objectives", False),
                     smooth_p=eval_kw.get("smooth_p", 8.0),
                     smooth_k=eval_kw.get("smooth_k", 10.0),
-                    use_local_variance_lisa=eval_kw.get("use_local_variance_lisa", False),
+                    use_local_variance_lisa=eval_kw.get("use_local_variance_lisa", True),
                 )
                 best_score = min(front, key=lambda x: x[1].composite_score())[1]
                 rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,

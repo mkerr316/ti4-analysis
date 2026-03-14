@@ -55,13 +55,19 @@ Add a short paragraph in the methodology (e.g. in the README or paper, immediate
 
 ---
 
+## Variance stabilization (mandatory)
+
+The $\sqrt{k_i}$ degree-based scaling for local $I_i$ is **mandatory** in the benchmark and production path (default in `lisa_penalty_swappable`). It structurally neutralizes $\operatorname{Var}((\mathbf{W}\mathbf{z})_i) \propto 1/k_i$ at boundaries so that the optimization gradient does not favour edge-heavy configurations. Relying on post-hoc permutation testing alone would allow the algorithm to waste evaluation budget on degenerate edge-heavy maps; variance stabilization prevents exploitation before it occurs.
+
+---
+
 ## Summary
 
 | Question | Answer |
 |----------|--------|
-| **Can we “fix” it methodologically?** | Only by changing **W** (symmetric, degree weighting, etc.), which changes the meaning of the spatial lag and the LSAP bound; no standard fix preserves the current interpretation. |
+| **Can we “fix” it methodologically?** | Only by changing **W** (symmetric, degree weighting, etc.), which changes the meaning of the spatial lag and the LSAP bound; no standard fix preserves the current interpretation. We apply mandatory $\sqrt{k_i}$ scaling to the local statistic instead. |
 | **Is it a limitation?** | Yes, in the sense that local sensitivity is higher at edges; it is also a substantively reasonable reflection of TI4. |
-| **Is the narrative fix sufficient?** | Yes. Acknowledging the edge-leverage effect and framing it as aligned with strategic reality is appropriate; an optional sentence on why we did not switch to other **W** completes the picture. |
+| **Is the narrative fix sufficient?** | The mandatory $\sqrt{k_i}$ correction is the structural fix; acknowledging the edge-leverage effect and framing it as aligned with strategic reality completes the methodology. |
 
 ---
 
