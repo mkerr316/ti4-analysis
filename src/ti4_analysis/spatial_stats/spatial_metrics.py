@@ -3,7 +3,7 @@ Spatial statistics for TI4 map analysis.
 
 Implements advanced spatial metrics proposed in the research documentation:
 - Moran's I (spatial autocorrelation)
-- Gravity Model (distance-weighted accessibility)
+- Accessibility via discrete step-function (get_home_values / Evaluator distance multiplier)
 - Jain's Fairness Index
 - Resource clustering metrics
 
@@ -16,11 +16,10 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
 from scipy.spatial.distance import pdist, squareform
-import warnings
 
 from ..algorithms.hex_grid import HexCoord, hex_distance
 from ..data.map_structures import MapSpace, System, Evaluator, MapSpaceType
-from ..algorithms.balance_engine import TI4Map
+from ..algorithms.balance_engine import TI4Map, get_home_values
 
 
 @dataclass
@@ -32,15 +31,21 @@ class SpatialWeightMatrix:
     Common weighting schemes:
     - Binary adjacency: 1 if adjacent, 0 otherwise
     - Distance decay: 1/d^β where d is distance
+
+    node_degree: Optional (n,) array of topological degree k_i (number of neighbors)
+    per node, set at instantiation before any standardization. Required for
+    variance-stabilized local Moran (sqrt(k_i) scaling) in local_morans_i.
     """
     weights: np.ndarray  # NxN matrix
     coords: List[HexCoord]  # Coordinate for each row/col
+    node_degree: Optional[np.ndarray] = None  # (n,) topological degree at construction
 
     def row_standardize(self) -> 'SpatialWeightMatrix':
         """
         Row-standardize weights so each row sums to 1.
 
         This is standard practice for Moran's I and similar metrics.
+        Preserves node_degree so variance-stabilized local statistics remain correct.
 
         Returns:
             New SpatialWeightMatrix with standardized weights
@@ -49,7 +54,7 @@ class SpatialWeightMatrix:
         # Avoid division by zero
         row_sums = np.where(row_sums == 0, 1, row_sums)
         standardized = self.weights / row_sums
-        return SpatialWeightMatrix(weights=standardized, coords=self.coords)
+        return SpatialWeightMatrix(weights=standardized, coords=self.coords, node_degree=self.node_degree)
 
 
 def create_adjacency_weights(
@@ -96,7 +101,8 @@ def create_adjacency_weights(
                 weights[i, j] = 1
 
     coords = [s.coord for s in spaces]
-    return SpatialWeightMatrix(weights=weights, coords=coords)
+    degree = np.asarray(weights.sum(axis=1)).ravel().astype(np.float64)
+    return SpatialWeightMatrix(weights=weights, coords=coords, node_degree=degree)
 
 
 def create_distance_weights(
@@ -135,14 +141,15 @@ def create_distance_weights(
                 weights[i, j] = 1 / (dist ** beta)
 
     coords = [s.coord for s in spaces]
-    return SpatialWeightMatrix(weights=weights, coords=coords)
+    degree = np.asarray((weights > 0).sum(axis=1)).ravel().astype(np.float64)
+    return SpatialWeightMatrix(weights=weights, coords=coords, node_degree=degree)
 
 
 def morans_i(
     values: np.ndarray,
     weights: SpatialWeightMatrix,
     row_standardized: bool = True
-) -> Tuple[float, float, float]:
+) -> Tuple[float, float]:
     """
     Calculate Moran's I spatial autocorrelation statistic.
 
@@ -161,16 +168,19 @@ def morans_i(
         xᵢ = value at location i
         x̄ = mean of all values
 
+    At N=37 asymptotic variance is not justified; significance must be evaluated
+    via permutation (e.g. validate_lisa_proxy.py). No analytical variance is
+    computed or returned.
+
     Args:
         values: Array of values at each location
         weights: Spatial weight matrix
         row_standardized: Whether to row-standardize weights first
 
     Returns:
-        Tuple of (I, expected_I, variance_I)
+        Tuple of (I, expected_I)
         - I: Moran's I statistic
-        - expected_I: Expected value under null hypothesis of no correlation
-        - variance_I: Variance of I under null hypothesis
+        - expected_I: Expected value under null hypothesis of no correlation (-1/(n-1))
 
     References:
         Anselin, L. (1995). Local indicators of spatial association—LISA.
@@ -196,34 +206,14 @@ def morans_i(
     W_sum = W_matrix.sum()
 
     if denominator == 0 or W_sum == 0:
-        return 0.0, -1/(n-1), 0.0
+        return 0.0, -1.0 / (n - 1) if n > 1 else 0.0
 
     I = (n / W_sum) * (numerator / denominator)
 
     # Expected value under null hypothesis
-    expected_I = -1 / (n - 1)
+    expected_I = -1.0 / (n - 1)
 
-    # Analytical variance under normality assumption (Cliff & Ord, 1981).
-    # S0 = sum of all weights, S1 and S2 are weight-matrix cross-products.
-    S0 = W_matrix.sum()
-    S1 = 0.5 * float(np.sum((W_matrix + W_matrix.T) ** 2))
-    row_plus_col = (
-        np.asarray(W_matrix.sum(axis=1)).ravel()
-        + np.asarray(W_matrix.sum(axis=0)).ravel()
-    )
-    S2 = float(np.sum(row_plus_col ** 2))
-    # Sample kurtosis of deviations
-    m2 = float((x_dev ** 2).sum()) / n
-    m4 = float((x_dev ** 4).sum()) / n
-    kurtosis = m4 / (m2 ** 2) if m2 != 0 else 3.0
-
-    A = n * ((n ** 2 - 3 * n + 3) * S1 - n * S2 + 3 * S0 ** 2)
-    B = kurtosis * (n * (n - 1) * S1 - 2 * n * S2 + 6 * S0 ** 2)
-    C = (n - 1) * (n - 2) * (n - 3) * S0 ** 2
-
-    variance_I = (A - B) / C - expected_I ** 2 if C != 0 else 0.0
-
-    return I, expected_I, variance_I
+    return I, expected_I
 
 
 def local_morans_i(
@@ -232,25 +222,27 @@ def local_morans_i(
     row_standardized: bool = True
 ) -> np.ndarray:
     """
-    Calculate Local Moran's I (LISA) for each location.
+    Calculate Local Moran's I (LISA) for each location, variance-stabilized by sqrt(k_i).
 
     Local Moran's I identifies local spatial clusters:
     - I > 0: Location similar to neighbors (high-high or low-low cluster)
     - I < 0: Location dissimilar to neighbors (spatial outlier)
 
-    Formula for location i:
+    Formula for location i (before scaling):
         Iᵢ = (xᵢ - x̄) Σⱼ wᵢⱼ(xⱼ - x̄) / m2
         where m2 = Σ(xᵢ - x̄)² / n  (spatial variance)
 
-    Normalising by m2 makes values dimensionless; Σ Iᵢ ≈ n × I_global.
+    Returned values are scaled by sqrt(k_i) (node degree) for heteroskedasticity
+    correction on bounded grids. weights must have node_degree set at construction
+    (e.g. from create_adjacency_weights or create_distance_weights).
 
     Args:
         values: Array of values at each location
-        weights: Spatial weight matrix
+        weights: Spatial weight matrix (must have node_degree set for variance stabilization)
         row_standardized: Whether to row-standardize weights
 
     Returns:
-        Array of local Moran's I values (dimensionless)
+        Array of variance-stabilized local Moran's I values (I_i * sqrt(k_i))
     """
     if row_standardized:
         weights = weights.row_standardize()
@@ -268,64 +260,17 @@ def local_morans_i(
     for i in range(n):
         local_I[i] = x_dev[i] * (W_matrix[i, :] * x_dev).sum() / m2
 
+    # Variance stabilization: scale by sqrt(k_i) so edge and interior nodes have comparable scale
+    degree = weights.node_degree
+    if degree is None or len(degree) != n:
+        raise ValueError(
+            "local_morans_i requires SpatialWeightMatrix with node_degree set at construction "
+            "(e.g. from create_adjacency_weights) for variance-stabilized output."
+        )
+    degree = np.asarray(degree, dtype=np.float64).ravel()
+    local_I = local_I * np.sqrt(np.maximum(degree, 1.0))
+
     return local_I
-
-
-def gravity_model_accessibility(
-    ti4_map: TI4Map,
-    evaluator: Evaluator,
-    home_space: MapSpace,
-    beta: float = 2.0
-) -> float:
-    """
-    Calculate accessibility using a continuous inverse-distance gravity model.
-
-    .. deprecated::
-        This function uses a continuous power-law decay (1/d^beta) which
-        contradicts the discrete step-function decay used in the main
-        optimization loop (see ``Evaluator.get_distance_multiplier``).
-        It is retained **only** for post-hoc comparison against the
-        step-function approach in ``comprehensive_spatial_analysis`` and
-        must NOT be used inside the fitness evaluation loop.
-
-    Formula:
-        Accessibility = Σⱼ (Vⱼ / dᵢⱼ^β)
-
-    Args:
-        ti4_map: TI4 map object
-        evaluator: Evaluator for system values
-        home_space: Home system space
-        beta: Distance decay exponent (higher = distance matters more)
-
-    Returns:
-        Accessibility score
-    """
-    warnings.warn(
-        "gravity_model_accessibility uses continuous 1/d^beta decay. "
-        "The optimization loop uses discrete step-function decay via "
-        "Evaluator.DISTANCE_MULTIPLIER. This function is for post-hoc "
-        "analysis only.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    accessibility = 0.0
-
-    for space in ti4_map.spaces:
-        if space.space_type != MapSpaceType.SYSTEM or space.system is None:
-            continue
-
-        if space.coord == home_space.coord:
-            continue
-
-        value = space.system.evaluate(evaluator)
-        if value <= 0:
-            continue
-
-        distance = hex_distance(home_space.coord, space.coord)
-        if distance > 0:
-            accessibility += value / (distance ** beta)
-
-    return accessibility
 
 
 def jains_fairness_index(values: np.ndarray) -> float:
@@ -395,8 +340,8 @@ def resource_clustering_coefficient(
     # Create weight matrix
     weights = create_adjacency_weights(ti4_map, include_wormholes)
 
-    # Calculate Moran's I
-    I, expected_I, variance_I = morans_i(values, weights)
+    # Calculate Moran's I (no analytical variance at small N; use permutation for significance)
+    I, expected_I = morans_i(values, weights)
 
     return I
 
@@ -466,14 +411,9 @@ def comprehensive_spatial_analysis(
     Returns:
         Dictionary with all spatial statistics
     """
-    # Get home spaces
-    home_spaces = ti4_map.get_home_spaces()
-
-    # Calculate accessibility for each home
-    accessibilities = []
-    for home in home_spaces:
-        acc = gravity_model_accessibility(ti4_map, evaluator, home, beta=2.0)
-        accessibilities.append(acc)
+    # Accessibility via discrete step-function (Evaluator.get_distance_multiplier)
+    home_values = get_home_values(ti4_map, evaluator)
+    accessibilities = [hv.value for hv in home_values]
 
     # Resource clustering
     clustering = resource_clustering_coefficient(ti4_map, evaluator, include_wormholes=True)
