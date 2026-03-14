@@ -91,7 +91,7 @@ For one dimension, $J(\mathbf{x}) = (\sum x_i)^2 / (n \sum x_i^2)$, range $[1/n,
 
 ## 3.4 Algorithms
 
-- **HC (Greedy Hill-Climbing):** Accepts only improving moves; no memory. Baseline and warm-start for NSGA-II/SGA.
+- **HC (Greedy Hill-Climbing):** Accepts only improving moves; no memory. HC optimizes the `balance_gap` as its sole scalar objective; it is included in Phase 2 exclusively as a baseline comparator and warm-start mechanism, not as an instrument for the main multi-objective experiment.
 - **SA (Simulated Annealing):** Markov chain with $P(\text{accept}) = \exp(-\Delta/T)$. Cooling rate $\alpha = (T_{\min}/T_0)^{1/N}$ over $N$ steps (Kirkpatrick et al., 1983). $T_0$ calibrated to initial acceptance rate.
 - **SGA (Single-Objective GA):** Same BFS-blob crossover and swap mutation as NSGA-II; scalar tournament selection and $(\mu+\lambda)$ replacement. **Architecture control:** SA vs SGA = same scalar, different architecture; SGA vs NSGA-II = same operators, scalar vs Pareto. Recombination is localized (BFS-connected blobs + OX1) so that the geometric contiguity of the search space is preserved and epistasis is controlled; no further structural changes are required for epistatic control.
 - **NSGA-II:** Three-objective Pareto (1 − JFI, |I|, LSAP). BFS-blob crossover; non-dominated sorting and crowding distance (Deb et al., 2002). For Track A we apply a posteriori scalarization (min composite over the front).

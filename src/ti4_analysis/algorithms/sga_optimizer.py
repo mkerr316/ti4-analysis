@@ -59,7 +59,7 @@ def sga_optimize(
     use_smooth_objectives: bool = False,
     smooth_p: float = 8.0,
     smooth_k: float = 10.0,
-    use_local_variance_lisa: bool = True,
+    use_local_variance_lisa: bool = False,
 ) -> Tuple[MultiObjectiveScore, List[Tuple[int, MultiObjectiveScore]]]:
     """
     Single-objective GA with BFS-blob OX1 crossover for TI4 map balance.

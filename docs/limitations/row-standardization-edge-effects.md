@@ -55,9 +55,9 @@ Add a short paragraph in the methodology (e.g. in the README or paper, immediate
 
 ---
 
-## Variance stabilization (mandatory)
+## Heuristic Scale Equalization
 
-The $\sqrt{k_i}$ degree-based scaling for local $I_i$ is **mandatory** in the benchmark and production path (default in `lisa_penalty_swappable`). It structurally neutralizes $\operatorname{Var}((\mathbf{W}\mathbf{z})_i) \propto 1/k_i$ at boundaries so that the optimization gradient does not favour edge-heavy configurations. Relying on post-hoc permutation testing alone would allow the algorithm to waste evaluation budget on degenerate edge-heavy maps; variance stabilization prevents exploitation before it occurs.
+The optional $\sqrt{k_i}$ degree-based scaling for local $I_i$ acts as a computationally expedient heuristic to reduce scale differences at grid boundaries. While the exact variance of the local Moran statistic under a spatial null depends on higher-order moments and local topology, scaling by $\sqrt{k_i}$ provides a first-order empirical adjustment to mitigate heteroskedasticity in the optimization gradient. In the nominal benchmark, this heuristic is disabled to preserve the formal $n(n-1)$ normalization bound.
 
 ---
 
@@ -65,9 +65,9 @@ The $\sqrt{k_i}$ degree-based scaling for local $I_i$ is **mandatory** in the be
 
 | Question | Answer |
 |----------|--------|
-| **Can we “fix” it methodologically?** | Only by changing **W** (symmetric, degree weighting, etc.), which changes the meaning of the spatial lag and the LSAP bound; no standard fix preserves the current interpretation. We apply mandatory $\sqrt{k_i}$ scaling to the local statistic instead. |
+| **Can we “fix” it methodologically?** | Only by changing **W** (symmetric, degree weighting, etc.), which changes the meaning of the spatial lag and the LSAP bound; no standard fix preserves the current interpretation. Optional $\sqrt{k_i}$ heuristic scale equalization is available under `--corrected-landscape`; nominal benchmark keeps it off for the $n(n-1)$ bound. |
 | **Is it a limitation?** | Yes, in the sense that local sensitivity is higher at edges; it is also a substantively reasonable reflection of TI4. |
-| **Is the narrative fix sufficient?** | The mandatory $\sqrt{k_i}$ correction is the structural fix; acknowledging the edge-leverage effect and framing it as aligned with strategic reality completes the methodology. |
+| **Is the narrative fix sufficient?** | Optional $\sqrt{k_i}$ heuristic mitigates scale differences when enabled; acknowledging the edge-leverage effect and framing it as aligned with strategic reality completes the methodology. |
 
 ---
 

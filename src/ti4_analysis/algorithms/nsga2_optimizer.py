@@ -369,7 +369,7 @@ def nsga2_optimize(
     use_smooth_objectives: bool = False,
     smooth_p: float = 8.0,
     smooth_k: float = 10.0,
-    use_local_variance_lisa: bool = True,
+    use_local_variance_lisa: bool = False,
     normalizer_sigma: Optional[Dict[str, float]] = None,
 ) -> List[Tuple[TI4Map, MultiObjectiveScore]]:
     """
