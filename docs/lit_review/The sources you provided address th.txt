@@ -83,3 +83,25 @@ The documentation points out that if row-standardization were removed (or mathem
 
 ---
 
+Your critique regarding the scaling of the Tabu Search (TS) tenure identifies a valid mathematical discrepancy between the array length $S$ and the permutation neighborhood size $C(S,2)$. However, based on the provided documentation and empirical studies on board game map generation, your conclusion that a small default tenure "guarantees its underperformance" overlooks both the specific constraints of the comparative benchmark and the empirical behavior of Tabu Search in this specific problem domain. 
+
+Here is how the literature and the project documentation address your concerns:
+
+### 1. The Theoretical Baseline is Standard, Not Arbitrary
+The documentation states that the default tenure of $\lceil\sqrt{S}\rceil$ is not an invalid, unconsidered baseline, but rather a direct implementation of Fred Glover's foundational 1989 guidelines for Tabu Search. While scaling to the neighborhood size is a reasonable advanced heuristic, the square-root scaling of the primary problem dimension ($S$) is a standard, structurally valid baseline in classical implementations.
+
+### 2. Underperformance is Driven by Evaluation Budgets, Not Memory Size
+Your claim assumes that TS fails to escape local minima in the benchmark because its memory is too restricted. However, the documentation notes that TS's underperformance in the comparative analysis is a structural consequence of its massive per-iteration evaluation cost, not its memory size. 
+* Because TS evaluates the full neighborhood deterministically, a single iteration costs $\binom{S}{2}$ evaluations (e.g., $\approx 435$ evaluations for $S = 30$). 
+* Under the benchmark's strict limit of 1,000 evaluations, TS is only capable of completing approximately **2 full iterations**. 
+* Therefore, the Tabu Search is functionally memoryless in the baseline comparative analysis not because the tenure is set to $6$, but because the algorithm exhausts its budget before the search reaches *any* iteration depth where a tabu list of any size could meaningfully shape the search trajectory. 
+
+### 3. Empirical Insensitivity to Tabu List Size in Map Generation
+Your proposed optimal solution assumes that scaling the Tabu list to $5\% - 10\%$ of the neighborhood size will drastically improve its ability to navigate the landscape. However, recent literature specifically studying Tabu Search for board game procedural map generation (specifically for *Terra Mystica*, a game mathematically similar to *Twilight Imperium*) contradicts this assumption. 
+
+Grichshenko et al. (2020) conducted a hyperparameter optimization study for map generation using TS, testing Tabu list sizes ranging from 10 up to 100, and neighborhood sizes ranging from 10 to 100. Their findings directly challenge your premise:
+* **No Significant Impact:** Statistical analysis (ANOVA) failed to prove any direct dependency between the Tabu list size and the results of the TS algorithm. 
+* **Domain Exception:** The authors explicitly concluded that "the Tabu list size in TS did not significantly change the performance of the algorithm for this particular problem domain," noting that this is an exception to how TS behaves in other classical scheduling or routing applications.
+* **Neighborhood Dominance:** The study found that performance was directly correlated with *neighborhood size* (breadth of exploration), not the memory length.
+
+**Summary:** While rewriting the default tenure bound to scale with $C(S,2)$ is mathematically sound for maintaining a strict percentage-based restriction of the neighborhood space, it would not alter the TS underperformance in this benchmark. TS is fatally handicapped by the fixed 1,000-evaluation budget, and empirical studies on tabletop map generation suggest the domain itself is highly insensitive to Tabu list sizing.

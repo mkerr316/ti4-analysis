@@ -62,3 +62,7 @@ Standard spatial statistics (e.g. Moran's I) rely on **asymptotic normality** fo
 - The only inherent limitation is **power**: with 37 tiles, very weak clustering may be undetectable. Transparency (reporting N, permutation, and effect sizes) is the appropriate response.
 
 **Bottom line:** Use permutation-based evaluation for all significance claims; treat LSAP as the optimization heuristic; do not use analytical variance or z-scores for significance at N=37; use FDR (Benjamini–Hochberg) for LISA multiple-testing correction; global Moran's I significance is reported via the permutation test in `validate_lisa_proxy.py`. Then the small-N issue is addressed rather than a permanent, unfixable flaw of TI4-style map optimization.
+
+## Search Space Symmetry (D₆ Dihedral Group)
+
+The effective search space is approximately 37!/12 rather than 37! due to D₆ dihedral symmetry (6 rotations, 6 reflections on the hex grid). All algorithms may redundantly evaluate rotationally or reflectively equivalent configurations, inflating absolute convergence estimates by up to 12× while leaving relative algorithm rankings unaffected.

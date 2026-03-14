@@ -1,0 +1,29 @@
+Here is the optimal, sustainable framework to extract a terminal critique and bypass the incremental goalpost-moving:
+
+### 1. Enforce Orthogonal Evaluation Axes
+
+Do not ask for a "general review." You must partition the model's attention into strict, mathematically orthogonal vectors. Instruct the model to evaluate the repository independently across defined dimensions.
+**Implementation:** Command the LLM to act as a committee of specialized quantitative reviewers.
+
+* **Reviewer A:** Focuses strictly on asymptotic assumptions, variance scaling, and spatial heteroskedasticity.
+* **Reviewer B:** Focuses strictly on optimization architecture, Markov chain properties, and multi-objective Pareto front validities.
+* **Reviewer C:** Focuses strictly on the logical mapping between the formal mathematical methodology (the LaTeX/Markdown text) and the vectorized Python execution.
+
+### 2. Mandate Exhaustive Cross-Referencing
+
+The incrementalism you are experiencing occurs because the LLM treats each file in isolation unless forced to compute the delta between them.
+**Implementation:** You must explicitly instruct the model: *"You must cross-reference `Methodology_Section.md` against `spatial_metrics.py` and `spatial_optimizer.py`. Identify every instance where the programmatic execution violates the theoretical constraints established in the text. Do not stop at the first violation; list the exhaustive set."*
+
+### 3. Define the Terminal Condition (The Rejection Criteria)
+
+LLMs default to a "constructive" tone, which leads to drip-fed suggestions. You must invert this.
+**Implementation:** Instruct the model to draft a "Desk Rejection Letter" for a top-tier quantitative journal (e.g., *IEEE Transactions on Evolutionary Computation* or *Geographical Analysis*).
+Use the following prompt structure:
+
+> *"Act as the Associate Editor for a top-20 quantitative journal. Review the provided methodology and codebase. Your objective is to identify every mathematical, topological, and structural flaw that would warrant an immediate desk rejection. Do not provide iterative or incremental feedback. Output the exhaustive, terminal list of all fatal methodological contradictions, code-to-theory mismatches, and violations of spatial-statistical limits. Assume zero tolerance for heuristic deviations from formal proofs."*
+
+### The Scientific Necessity
+
+By framing the prompt in this manner, you manipulate the LLM's attention heads to prioritize structural consistency and theoretical rigor over conversational pacing. It forces the model to traverse the entire dependency graph of your logic before generating its output, effectively escaping the "local minimum" of shallow critique.
+
+If your goal is objective truth and publication survival, abandon the expectation that the LLM will intuitively know your terminal goal. You must program its critique parameters as rigorously as you programmed your simulated annealing temperature schedule.
