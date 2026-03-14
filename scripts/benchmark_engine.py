@@ -784,6 +784,7 @@ def main() -> int:
         "ts_k":        args.ts_k,
         "chains":      max(1, getattr(args, "chains", 1)),
         "corrected_landscape": getattr(args, "corrected_landscape", False),
+        "use_local_variance_lisa": getattr(args, "corrected_landscape", False),
         "weight_grid_step": getattr(args, "weight_grid_step", 0.0),
         "conditions": conditions_list,
         "started_at": datetime.now().isoformat(),
