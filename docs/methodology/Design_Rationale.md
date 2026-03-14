@@ -76,7 +76,6 @@ This study demonstrates computationally that spatial autocorrelation metrics det
 - **Phase 1 (primary):** Four-condition SA run using **tuned SA parameters** — same seeds, same budgets (e.g. 10k, 50k, 100k, 500k). Invoke with `--conditions jfi_only,moran_only,lsap_only,full_composite` and `--algorithms sa`.
 - **Phase 2 (methods justification):** Algorithm benchmarking — all six algorithms, same budgets, using all tuned parameters. This run is **not** the primary result; it justifies the choice of SA as the instrument.
 
-**Pre-submission gate:**  
-`grep -rE "PENDING_MAIN_EXPERIMENT|⚠ INSERT|\[INSERT\]" docs/` must return **zero matches**.
+**Pre-submission gate:** Run `scripts/pre_submission_check.sh` from the project root; it must report **zero matches**.
 
 **Mutual exclusivity:** `--conditions` and `--weight-grid-step > 0` cannot both be set; the script exits with an explicit error if they are.
