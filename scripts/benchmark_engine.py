@@ -121,6 +121,7 @@ CSV_FIELDS = [
     "balance_gap", "morans_i", "jains_index", "jfi_resources", "jfi_influence",
     "lisa_penalty", "composite_score", "elapsed_sec", "front_size",
     "evals_to_best",
+    "final_tile_layout",
 ]
 
 
@@ -135,7 +136,16 @@ def make_row(
     chain_id: int = 0,
     weight_vector: str = "none",
     condition: str = "none",
+    map_obj=None,
 ) -> Dict:
+    layout = (
+        json.dumps([
+            s.system.id if s.system is not None else None
+            for s in map_obj.spaces
+        ])
+        if map_obj is not None
+        else ""
+    )
     return {
         "seed":           seed,
         "algorithm":      algorithm,
@@ -153,6 +163,7 @@ def make_row(
         "elapsed_sec":    round(elapsed,                          2),
         "front_size":     front_size,
         "evals_to_best":  evals_to_best,
+        "final_tile_layout": layout,
     }
 
 
@@ -168,6 +179,7 @@ def make_error_row(seed: int, algorithm: str, elapsed: float, budget: int = 0,
         "composite_score": float("nan"),
         "elapsed_sec": round(elapsed, 2), "front_size": -1,
         "evals_to_best": -1,
+        "final_tile_layout": "",
     }
 
 
@@ -479,7 +491,7 @@ def _run_seed(job):
                         del fs
                     rows.append(make_row(seed, "rs", best_rs_score, time.time() - t0, 1, budget,
                                          evals_to_best=rs_etb, chain_id=chain_id,
-                                         weight_vector=wv_label, condition=condition))
+                                         weight_vector=wv_label, condition=condition, map_obj=None))
                     for sc in rs_front:
                         rs_agg_front = _update_front(rs_agg_front, sc)
                     if wv_idx == 0:
@@ -514,7 +526,7 @@ def _run_seed(job):
                     )
                     rows.append(make_row(seed, "hc", hc_score, time.time() - t0, 1, budget,
                                          evals_to_best=hc_etb, chain_id=chain_id,
-                                         weight_vector=wv_label, condition=condition))
+                                         weight_vector=wv_label, condition=condition, map_obj=hc_map))
                     for _, sc in hc_history:
                         hc_agg_front = _update_front(hc_agg_front, sc)
                     if wv_idx == 0:
@@ -551,7 +563,7 @@ def _run_seed(job):
                     )
                     rows.append(make_row(seed, "sa", sa_score, time.time() - t0, 1, budget,
                                          evals_to_best=sa_etb, chain_id=chain_id,
-                                         weight_vector=wv_label, condition=condition))
+                                         weight_vector=wv_label, condition=condition, map_obj=sa_map))
                     for _, sc in sa_history:
                         sa_agg_front = _update_front(sa_agg_front, sc)
                     if wv_idx == 0:
@@ -592,7 +604,7 @@ def _run_seed(job):
                 )
                 best_score = min(front, key=lambda x: x[1].composite_score())[1]
                 rows.append(make_row(seed, "nsga2", best_score, time.time() - t0,
-                                     len(front), budget, chain_id=chain_id, condition="none"))
+                                     len(front), budget, chain_id=chain_id, condition="none", map_obj=nsga_map))
 
                 # Save Pareto archive for Track B quality indicators
                 archive_rows = []
@@ -655,7 +667,7 @@ def _run_seed(job):
                         sga_agg_front = _update_front(sga_agg_front, sc)
                     rows.append(make_row(seed, "sga", sga_score, time.time() - t0, 1, budget,
                                          evals_to_best=sga_etb, chain_id=chain_id,
-                                         weight_vector=wv_label, condition=condition))
+                                         weight_vector=wv_label, condition=condition, map_obj=sga_map))
                     if wv_idx == 0:
                         sga_history_canonical = sga_history
                     del sga_map
@@ -693,7 +705,7 @@ def _run_seed(job):
                     )
                     rows.append(make_row(seed, "ts", ts_score, time.time() - t0, 1, budget,
                                          evals_to_best=ts_etb, chain_id=chain_id,
-                                         weight_vector=wv_label, condition=condition))
+                                         weight_vector=wv_label, condition=condition, map_obj=ts_map))
                     for _, sc in ts_history:
                         ts_agg_front = _update_front(ts_agg_front, sc)
                     if wv_idx == 0:

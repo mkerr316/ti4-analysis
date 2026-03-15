@@ -157,7 +157,7 @@ $PYTHON_BIN scripts/optimize_hyperparameters.py \
 
 echo ""
 echo "--- Extracting all tuned hyperparameters (for Phase 2b) ---"
-read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT NSGA_WARM SGA_BLOB SGA_MUT SGA_WARM TS_K < <(
+read SA_RATE SA_MIN_TEMP NSGA_BLOB NSGA_MUT SGA_BLOB SGA_MUT SGA_WARM TS_K < <(
 $PYTHON_BIN -c "
 import json, glob, sys
 params = {}
@@ -171,13 +171,13 @@ for algo in ('sa', 'nsga2', 'sga', 'ts'):
         sys.exit(1)
 sa, ng, sg, ts = params['sa'], params['nsga2'], params['sga'], params['ts']
 print(sa['initial_acceptance_rate'], sa['min_temp'],
-      ng['blob_fraction'], ng['mutation_rate'], ng['warm_fraction'],
+      ng['blob_fraction'], ng['mutation_rate'],
       sg['blob_fraction'], sg['mutation_rate'], sg['warm_fraction'],
       ts['tabu_tenure_coefficient'])
 "
 )
 echo "  SA:      rate=$SA_RATE  min_temp=$SA_MIN_TEMP"
-echo "  NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT  warm=$NSGA_WARM"
+echo "  NSGA-II: blob=$NSGA_BLOB  mut=$NSGA_MUT"
 echo "  SGA:     blob=$SGA_BLOB  mut=$SGA_MUT  warm=$SGA_WARM"
 echo "  TS:      k=$TS_K"
 
@@ -195,7 +195,6 @@ $PYTHON_BIN scripts/benchmark_engine.py \
     --sa-min-temp "$SA_MIN_TEMP" \
     --nsga-blob "$NSGA_BLOB" \
     --nsga-mut "$NSGA_MUT" \
-    --nsga-warm "$NSGA_WARM" \
     --sga-blob "$SGA_BLOB" \
     --sga-mut "$SGA_MUT" \
     --sga-warm "$SGA_WARM" \
