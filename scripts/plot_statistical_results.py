@@ -67,6 +67,14 @@ def _load(csv_path: Path, budget: int = None) -> pd.DataFrame:
         df = df[df["budget"] == budget]
     elif "budget" in df.columns and df["budget"].nunique() > 1 and budget is None:
         df = df[df["budget"] == df["budget"].min()]
+    if "chain_id" in df.columns and df["chain_id"].nunique() > 1:
+        n_chains = df["chain_id"].nunique()
+        group_cols = [c for c in ["seed", "algorithm", "budget", "condition", "weight_vector"]
+                      if c in df.columns]
+        numeric_cols = [c for c in df.select_dtypes(include="number").columns
+                        if c not in ("seed", "chain_id")]
+        df = df.groupby(group_cols)[numeric_cols].mean().reset_index()
+        print(f"  Aggregated {n_chains} chains → {len(df)} rows (mean across chains)")
     df["Algorithm"] = df["algorithm"].map(ALGO_NAMES)
     return df
 

@@ -137,6 +137,16 @@ def load_and_validate(csv_path: Path, budget: int = None) -> pd.DataFrame:
         print(f"Defaulting to budget={budgets[0]}")
         df = df[df["budget"] == budgets[0]]
 
+    if "chain_id" in df.columns and df["chain_id"].nunique() > 1:
+        n_chains = df["chain_id"].nunique()
+        group_cols = [c for c in ["seed", "algorithm", "budget", "condition", "weight_vector"]
+                      if c in df.columns]
+        numeric_cols = [c for c in METRICS + ["evals_to_best",
+                        "jfi_resources", "jfi_influence", "balance_gap"]
+                        if c in df.columns]
+        df = df.groupby(group_cols)[numeric_cols].mean().reset_index()
+        print(f"  Aggregated {n_chains} chains → {len(df)} rows (mean across chains)")
+
     algos = sorted(df["algorithm"].unique())
     seeds = sorted(df["seed"].unique())
     print(f"Loaded {len(df)} rows: {len(seeds)} seeds × {len(algos)} algorithms")
