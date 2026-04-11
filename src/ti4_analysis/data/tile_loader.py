@@ -9,12 +9,12 @@ import json
 import re
 import chompjs
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 
 from .map_structures import (
     System, Planet, Anomaly, Wormhole,
-    PlanetTrait, TechSpecialty
+    PlanetTrait, TechSpecialty, Evaluator
 )
 
 
@@ -482,6 +482,29 @@ def load_tile_database(
     print(f"  - Home: {len(home_tiles)}")
 
     return db
+
+
+def get_global_value_bounds(
+    db: TileDatabase,
+    evaluator: Evaluator
+) -> Tuple[float, float]:
+    """
+    Calculate the absolute minimum and maximum possible strategic values
+    for any single hex tile in the database.
+    
+    Used for standardized color scaling (vmin/vmax) in visualizations.
+    
+    Args:
+        db: Tile database
+        evaluator: Evaluator to use for scoring
+        
+    Returns:
+        (min_value, max_value)
+    """
+    values = [system.evaluate(evaluator) for system in db.tiles.values()]
+    if not values:
+        return 0.0, 1.0
+    return min(values), max(values)
 
 
 def load_board_template(

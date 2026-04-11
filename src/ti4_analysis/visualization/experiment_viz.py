@@ -8,7 +8,9 @@ Creates publication-quality plots for comparing naive vs optimized maps:
 - Convergence analysis
 """
 
-from typing import Optional, Tuple, List
+from __future__ import annotations
+
+from typing import Optional, Tuple, List, Dict
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -486,6 +488,204 @@ def plot_effect_size_comparison(
         print(f"Saved: {save_path}")
 
     return fig
+
+
+def plot_raincloud(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    palette: Optional[Dict] = None,
+    ax: Optional[plt.Axes] = None,
+    title: Optional[str] = None,
+    orient: str = "h",
+    baseline_val: Optional[float] = None,
+    baseline_label: str = "Random Baseline"
+) -> plt.Axes:
+    """
+    Create a raincloud plot (stripplot + violinplot + boxplot) with optional baseline anchor.
+    
+    Args:
+        data: DataFrame containing the data
+        x: Column name for the categorical variable
+        y: Column name for the numeric variable
+        palette: Color palette mapping
+        ax: Matplotlib axes
+        title: Plot title
+        orient: Orientation ('h' or 'v')
+        baseline_val: Optional value to draw a reference line
+        baseline_label: Label for the reference line
+        
+    Returns:
+        Matplotlib axes
+    """
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Determine order if it's a categorical column
+    order = None
+    if data[x].dtype.name == 'category':
+        order = data[x].cat.categories
+
+    # Fallback to violin + stripplot + boxplot
+    sns.violinplot(
+        data=data, x=y if orient == "h" else x, y=x if orient == "h" else y,
+        palette=palette, ax=ax, inner=None, alpha=0.3, order=order, orient=orient
+    )
+    sns.stripplot(
+        data=data, x=y if orient == "h" else x, y=x if orient == "h" else y,
+        palette=palette, ax=ax, size=2, alpha=0.3, order=order, jitter=0.2, orient=orient
+    )
+    sns.boxplot(
+        data=data, x=y if orient == "h" else x, y=x if orient == "h" else y,
+        palette=palette, ax=ax, width=0.1, boxprops={'zorder': 2}, 
+        showfliers=False, order=order, orient=orient
+    )
+    
+    # Add baseline anchor
+    if baseline_val is not None:
+        if orient == "h":
+            ax.axvline(baseline_val, color='red', linestyle='--', linewidth=2, alpha=0.6, label=baseline_label)
+        else:
+            ax.axhline(baseline_val, color='red', linestyle='--', linewidth=2, alpha=0.6, label=baseline_label)
+        ax.legend()
+
+    if title:
+        ax.set_title(title, fontsize=12, fontweight='bold')
+    return ax
+
+
+def plot_pareto_projections(
+    df: pd.DataFrame,
+    objectives: List[Tuple[str, str, str]], # (col, label, short_label)
+    hue_metric: str = "condition",
+    palette: Optional[Dict] = None,
+    save_path: Optional[Path] = None,
+    utopia_points: Optional[Dict[str, float]] = None
+) -> plt.Figure:
+    """
+    Create a grid of 2D Pareto projections with optional Utopia point anchors.
+    
+    Args:
+        df: DataFrame containing objective values
+        objectives: List of (col_name, label, short_label)
+        hue_metric: Column to use for color
+        palette: Color palette
+        save_path: Where to save
+        utopia_points: Optional dict mapping column names to their ideal values
+        
+    Returns:
+        Matplotlib figure
+    """
+    n = len(objectives)
+    
+    # Pairwise combinations for 3 objectives
+    combos = [
+        (objectives[0], objectives[1]), # JFI vs Moran
+        (objectives[0], objectives[2]), # JFI vs LSAP
+        (objectives[1], objectives[2]), # Moran vs LSAP
+    ]
+    
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    for i, (obj1, obj2) in enumerate(combos):
+        ax = axes[i]
+        sns.scatterplot(
+            data=df, x=obj1[0], y=obj2[0], hue=hue_metric, 
+            palette=palette, ax=ax, alpha=0.5, s=20
+        )
+        
+        # Add Utopia point if provided
+        if utopia_points and obj1[0] in utopia_points and obj2[0] in utopia_points:
+            ux = utopia_points[obj1[0]]
+            uy = utopia_points[obj2[0]]
+            ax.scatter([ux], [uy], marker='*', s=200, color='gold', 
+                       edgecolors='black', label='Utopia Point', zorder=5)
+
+        ax.set_xlabel(obj1[1], fontweight='bold')
+        ax.set_ylabel(obj2[1], fontweight='bold')
+        ax.set_title(f"{obj1[2]} vs {obj2[2]}", fontweight='bold')
+        
+        if i < 2:
+            legend = ax.get_legend()
+            if legend: legend.remove()
+        else:
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', frameon=True, shadow=True)
+
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    return fig
+
+
+def plot_core_objective_distributions(
+    df: pd.DataFrame,
+    metrics: List[Tuple[str, str]], # (col, label)
+    condition_col: str = "condition",
+    palette: Optional[Dict] = None,
+    save_path: Optional[Path] = None
+) -> plt.Figure:
+    """
+    Streamlined distribution plots for core objectives using rainclouds.
+    """
+    n = len(metrics)
+    fig, axes = plt.subplots(1, n, figsize=(6 * n, 6))
+    if n == 1: axes = [axes]
+    
+    for i, (metric, label) in enumerate(metrics):
+        plot_raincloud(
+            df, x=condition_col, y=metric, 
+            palette=palette, ax=axes[i], title=label, orient="v"
+        )
+        axes[i].set_xticklabels(axes[i].get_xticklabels(), rotation=15)
+        axes[i].set_xlabel("")
+        
+    plt.tight_layout()
+    if save_path:
+        fig.savefig(save_path, bbox_inches='tight')
+    return fig
+
+
+def plot_ridgeline(
+    data: pd.DataFrame,
+    x: str,
+    y: str,
+    palette: Optional[Dict] = None,
+    title: Optional[str] = None,
+    floor: Optional[float] = None
+) -> sns.FacetGrid:
+    """
+    Create a ridgeline plot using Seaborn FacetGrid.
+    """
+    # Joypy-style ridgeline using Seaborn
+    g = sns.FacetGrid(data, row=y, hue=y, aspect=5, height=1.2, palette=palette)
+    g.map(sns.kdeplot, x, bw_adjust=.5, clip_on=False, fill=True, alpha=1, linewidth=1.5)
+    g.map(sns.kdeplot, x, clip_on=False, color="w", lw=2, bw_adjust=.5)
+    
+    # Passing color=None to refline() to use the hue mapping or a fixed color
+    g.refline(y=0, linewidth=2, linestyle="-", color=None, clip_on=False)
+
+    def label(x, color, label):
+        ax = plt.gca()
+        ax.text(0, .2, label, fontweight="bold", color=color,
+                ha="left", va="center", transform=ax.transAxes)
+
+    g.map(label, x)
+    g.figure.subplots_adjust(hspace=-.25)
+    g.set_titles("")
+    g.set(yticks=[], ylabel="")
+    g.despine(bottom=True, left=True)
+    
+    if title:
+        g.figure.suptitle(title, y=1.02)
+    
+    if floor is not None:
+        for ax in g.axes.flat:
+            ax.axvline(floor, color="red", linestyle="--", alpha=0.5)
+            # Annotate floor on the last axis
+            if ax == g.axes.flat[-1]:
+                ax.text(floor, 0, f"Floor: {floor}", color="red", ha="right", va="bottom", rotation=90)
+    
+    return g
 
 
 def create_all_experiment_visualizations(
